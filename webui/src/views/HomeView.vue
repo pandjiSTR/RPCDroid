@@ -45,7 +45,6 @@ const nowPlaying = computed(() => {
 
 const enabledCount = computed(() => Object.values(gamesStore.games).filter(g => g.enabled).length)
 const totalCount = computed(() => Object.keys(gamesStore.games).length)
-const presence = computed(() => configStore.status.charAt(0).toUpperCase() + configStore.status.slice(1))
 </script>
 
 <template>
@@ -123,11 +122,6 @@ const presence = computed(() => configStore.status.charAt(0).toUpperCase() + con
         <Icon name="clock" :size="16" />
         <strong>{{ configStore.pollInterval }}<small>s</small></strong>
         <span>Poll interval</span>
-      </div>
-      <div class="stat">
-        <Icon name="user" :size="16" />
-        <strong>{{ presence }}</strong>
-        <span>Presence</span>
       </div>
     </section>
   </div>

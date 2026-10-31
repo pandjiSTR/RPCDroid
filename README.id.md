@@ -2,7 +2,7 @@
 
 Modul root untuk Magisk, KernelSU, dan APatch yang mengirim aktivitas game Android ke Discord Rich Presence.
 
-![Versi](https://img.shields.io/badge/versi-0.0.2-blue)
+![Versi](https://img.shields.io/badge/versi-0.0.3-blue)
 ![Android](https://img.shields.io/badge/Android-10%2B-3DDC84)
 ![Root](https://img.shields.io/badge/root-Magisk%20%7C%20KernelSU%20%7C%20APatch-lightgrey)
 ![Daemon](https://img.shields.io/badge/daemon-C%20(NDK)-informational)
@@ -51,7 +51,7 @@ Pemakaian sumber daya daemon sekitar 1–2 MB RAM dengan beban CPU yang mendekat
 - Hanya game yang terdaftar di `gamelist.json` yang dilaporkan ke Discord.
 - Deteksi bersifat polling, sehingga perubahan status dapat tertunda hingga sekitar satu interval (bawaan 5 detik).
 - Bergantung pada Discord Gateway yang tidak didokumentasikan untuk akun pengguna. Perubahan di sisi Discord dapat memengaruhi fungsi modul sewaktu-waktu.
-- Versi saat ini (0.0.2) masih awal dan belum diuji luas pada berbagai perangkat.
+- Versi saat ini (0.0.3) masih awal dan belum diuji luas pada berbagai perangkat.
 
 ## Instalasi
 
@@ -63,7 +63,7 @@ Pemakaian sumber daya daemon sekitar 1–2 MB RAM dengan beban CPU yang mendekat
 
 ### Langkah
 
-1. Unduh `rpcdroid-v0.0.2.zip` dari halaman rilis.
+1. Unduh `rpcdroid-v0.0.3.zip` dari halaman rilis.
 2. Di aplikasi manajer root, buka **Modules**, pilih **Install from storage**, lalu pilih berkas zip tersebut.
 3. Reboot perangkat setelah instalasi selesai.
 4. Buka WebUI modul (tombol WebUI di KernelSU/APatch, atau tombol Action di Magisk).
@@ -160,7 +160,7 @@ Konversi pada jalur kedua diperlukan karena Discord menolak URL `https://` menta
 RPCDroid/
 ├── build.sh                       # Builder utama seluruh modul
 ├── README.md
-├── rpcdroid-v0.0.2.zip            # Paket modul siap flash
+├── rpcdroid-v0.0.3.zip            # Paket modul siap flash
 ├── .gitignore
 │
 ├── daemon/                        # Source daemon (C, NDK)
@@ -292,14 +292,14 @@ cd ..
 python3 - <<'EOF'
 import os, zipfile
 
-with zipfile.ZipFile("rpcdroid-v0.0.2.zip", "w", zipfile.ZIP_DEFLATED) as zf:
+with zipfile.ZipFile("rpcdroid-v0.0.3.zip", "w", zipfile.ZIP_DEFLATED) as zf:
     for root, _, files in os.walk("module"):
         for name in files:
             path = os.path.join(root, name)
             arcname = os.path.relpath(path, "module").replace(os.sep, "/")
             zf.write(path, arcname)
 
-print("Selesai: rpcdroid-v0.0.2.zip")
+print("Selesai: rpcdroid-v0.0.3.zip")
 EOF
 ```
 

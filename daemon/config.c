@@ -280,6 +280,13 @@ static void resolve_external_icon(GameEntry *e)
     if (e->icon[0] && strncmp(e->icon, "http://", 7) != 0 && strncmp(e->icon, "https://", 8) != 0)
         return;
 
+    /* Check persistent cache first */
+    const char *cached = icon_cache_get(e->package);
+    if (cached) {
+        snprintf(e->icon, sizeof(e->icon), "%s", cached);
+        return;
+    }
+
     /* If icon is an http/https URL, resolve via native Discord API */
     if (strncmp(e->icon, "http://", 7) == 0 || strncmp(e->icon, "https://", 8) == 0) {
         if (g_token[0] == '\0') token_load();
@@ -297,9 +304,9 @@ static void resolve_external_icon(GameEntry *e)
         if (res == 0 && mp_buf[0]) {
             LOG_INFO("Resolved media proxy icon for %s: %s", e->package, mp_buf);
             snprintf(e->icon, sizeof(e->icon), "%s", mp_buf);
+            icon_cache_set(e->package, mp_buf);
         } else {
             LOG_WARN("Failed to resolve media proxy icon for %s", e->package);
-            /* ponytail: clear raw http url so gateway does not show broken question mark (?) */
             e->icon[0] = '\0';
         }
     }
@@ -329,6 +336,24 @@ const char *gamelist_get_app_id(const char *package)
 
 void config_write_status(bool connected, const char *game, const char *discord_username)
 {
+    static bool last_connected = false;
+    static char last_game[256] = {0};
+    static char last_user[256] = {0};
+    static int initialized = 0;
+
+    const char *g = game ? game : "";
+    const char *u = discord_username ? discord_username : "";
+
+    if (initialized && last_connected == connected &&
+        strcmp(last_game, g) == 0 && strcmp(last_user, u) == 0) {
+        return; /* no change, skip write */
+    }
+
+    initialized = 1;
+    last_connected = connected;
+    snprintf(last_game, sizeof(last_game), "%s", g);
+    snprintf(last_user, sizeof(last_user), "%s", u);
+
     ensure_config_dir();
     FILE *f = fopen(STATUS_FILE, "w");
     if (!f) return;
@@ -347,7 +372,67 @@ void config_write_status(bool connected, const char *game, const char *discord_u
     fclose(f);
 }
 
-/* ── runtime save/load/clear ──────────────────────────────────────────── */
+/* ── icon cache ──────────────────────────────────────────────────────── */
+
+static char icon_cache_buf[512] = {0};
+
+const char *icon_cache_get(const char *package)
+{
+    if (!package || !package[0]) return NULL;
+    icon_cache_buf[0] = '\0';
+    FILE *f = fopen(ICON_CACHE_FILE, "r");
+    if (!f) return NULL;
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    rewind(f);
+    if (sz <= 0) { fclose(f); return NULL; }
+    char *buf = malloc(sz + 1);
+    if (!buf) { fclose(f); return NULL; }
+    if (fread(buf, 1, sz, f) != (size_t)sz) { free(buf); fclose(f); return NULL; }
+    buf[sz] = '\0';
+    fclose(f);
+    cJSON *root = cJSON_Parse(buf);
+    free(buf);
+    if (!root) return NULL;
+    cJSON *item = cJSON_GetObjectItemCaseSensitive(root, package);
+    if (cJSON_IsString(item) && item->valuestring && item->valuestring[0]) {
+        snprintf(icon_cache_buf, sizeof(icon_cache_buf), "%s", item->valuestring);
+    }
+    cJSON_Delete(root);
+    return icon_cache_buf[0] ? icon_cache_buf : NULL;
+}
+
+void icon_cache_set(const char *package, const char *mp_url)
+{
+    if (!package || !package[0] || !mp_url || !mp_url[0]) return;
+    ensure_config_dir();
+    cJSON *root = NULL;
+    FILE *f = fopen(ICON_CACHE_FILE, "r");
+    if (f) {
+        fseek(f, 0, SEEK_END);
+        long sz = ftell(f);
+        rewind(f);
+        if (sz > 0) {
+            char *buf = malloc(sz + 1);
+            if (buf && fread(buf, 1, sz, f) == (size_t)sz) {
+                buf[sz] = '\0';
+                root = cJSON_Parse(buf);
+            }
+            free(buf);
+        }
+        fclose(f);
+    }
+    if (!root) root = cJSON_CreateObject();
+    cJSON_DeleteItemFromObject(root, package);
+    cJSON_AddStringToObject(root, package, mp_url);
+    char *s = cJSON_PrintUnformatted(root);
+    if (s) {
+        FILE *out = fopen(ICON_CACHE_FILE, "w");
+        if (out) { fputs(s, out); fclose(out); }
+        free(s);
+    }
+    cJSON_Delete(root);
+}
 
 int runtime_save(const char *package, long long start_ms)
 {

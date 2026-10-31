@@ -137,9 +137,13 @@ int main(void)
                             gamelist_load();
                             LOG_INFO("Gamelist hot-reloaded");
                         } else if (strcmp(ev->name, "token") == 0) {
+                            char old_token[512];
+                            snprintf(old_token, sizeof(old_token), "%s", g_token);
                             token_load();
-                            LOG_INFO("Token changed, reconnecting");
-                            goto reconnect;
+                            if (strcmp(old_token, g_token) != 0) {
+                                LOG_INFO("Token changed, reconnecting");
+                                goto reconnect;
+                            }
                         }
                     }
                     p += sizeof(struct inotify_event) + ev->len;

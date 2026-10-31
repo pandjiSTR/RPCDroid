@@ -9,6 +9,7 @@
 #define STATUS_FILE     CONFIG_DIR "/status.json"
 #define LOG_FILE        CONFIG_DIR "/drpc.log"
 #define RUNTIME_FILE    CONFIG_DIR "/runtime.json"
+#define ICON_CACHE_FILE CONFIG_DIR "/icon_cache.json"
 
 typedef struct {
     int  poll_interval;       /* seconds between foreground app checks, default 5 */
@@ -41,3 +42,5 @@ void        config_write_status(bool connected, const char *game, const char *di
 int         runtime_save(const char *package, long long start_ms);
 int         runtime_load(char *package, size_t pkg_len, long long *start_ms);
 void        runtime_clear(void);
+const char *icon_cache_get(const char *package);   /* NULL if not cached */
+void        icon_cache_set(const char *package, const char *mp_url);
