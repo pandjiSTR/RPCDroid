@@ -1,303 +1,326 @@
-# RPCDroid — Magisk / KernelSU / APatch Module (v0.0.1)
+# RPCDroid
 
-Modul root tingkat sistem (Magisk, KernelSU, APatch) yang secara otomatis menampilkan aktivitas bermain game Android ke **Discord Rich Presence** secara *native* dan *real-time*.
+Modul root untuk Magisk, KernelSU, dan APatch yang mengirim aktivitas game Android ke Discord Rich Presence.
 
-Berbeda dengan aplikasi Android biasa yang memerlukan izin aksesibilitas berat, boros baterai, dan rentan dimatikan oleh sistem (low memory killer), modul ini bekerja melalui **daemon background C native** (~1–2 MB RAM, CPU ~0%) yang langsung terhubung ke Discord Gateway WebSocket via TLS terenkripsi, dikendalikan melalui antarmuka **WebUI modern (Vue 3)**.
+![Versi](https://img.shields.io/badge/versi-0.0.1-blue)
+![Android](https://img.shields.io/badge/Android-10%2B-3DDC84)
+![Root](https://img.shields.io/badge/root-Magisk%20%7C%20KernelSU%20%7C%20APatch-lightgrey)
+![Daemon](https://img.shields.io/badge/daemon-C%20(NDK)-informational)
 
----
+[Bahasa Indonesia](README.md) | [English](README.en.md)
 
-## Daftar Isi
+<!--
+  Tambahkan screenshot di sini, misalnya:
+  <p align="center">
+    <img src="docs/screenshots/home.png" width="240" alt="Halaman Home">
+    <img src="docs/screenshots/games.png" width="240" alt="Daftar game">
+    <img src="docs/screenshots/discord.png" width="240" alt="Hasil di Discord">
+  </p>
+-->
 
-1. [Tech Stack & Dependensi](#tech-stack--dependensi)
-2. [Arsitektur & Cara Kerja](#arsitektur--cara-kerja)
-3. [Struktur File](#struktur-file)
-4. [Alur Kerja Sistem](#alur-kerja-sistem)
-5. [Mekanisme Icon Discord & Fallback](#mekanisme-icon-discord--fallback)
-6. [Struktur File Konfigurasi di Perangkat](#struktur-file-konfigurasi-di-perangkat)
-7. [Instalasi & Penggunaan](#instalasi--penggunaan)
-8. [Panduan Mendapatkan Discord Token](#panduan-mendapatkan-discord-token)
-9. [Kompilasi dari Source](#kompilasi-dari-source)
-10. [Kredit & Referensi](#kredit--referensi)
-11. [Lisensi & Penafian](#lisensi--penafian)
+## Ringkasan
 
----
+Saat sebuah game dibuka di ponsel, status Discord akun menampilkan nama game, ikonnya, dan lama bermain (misalnya *Playing Mobile Legends*). Status dihapus otomatis ketika game ditutup.
 
-## Tech Stack & Dependensi
+Fungsi tersebut dijalankan oleh sebuah daemon native (`rpcdroid`) yang berjalan sebagai service modul dan terhubung langsung ke Discord Gateway melalui WebSocket over TLS. Pengaturan dilakukan lewat WebUI yang dibuka dari aplikasi manajer root.
 
-| Komponen | Teknologi / Bahasa | Pustaka / Dependensi | Fungsi Utama |
-|---|---|---|---|
-| **Daemon (Core Engine)** | C (C99), Android NDK (Clang) | • **mbedTLS (v3.6.0)**<br>• **cJSON**<br>• Linux POSIX Sockets<br>• Linux `sys/inotify.h` | Daemon latar belakang mandiri (`rpcdroid`). Mengelola koneksi aman WebSocket ke Discord, memantau foreground window Android, memproses JSON payload, dan hot-reload konfigurasi tanpa restart. |
-| **WebUI (Frontend)** | JavaScript (ESNext), HTML5, CSS3 | • **Vue 3** (Composition API, `<script setup>`)<br>• **Vite 7** (Bundler & HMR)<br>• **Pinia 2** (State Management)<br>• **Vue Router 4** (Client-side Routing)<br>• **Tailwind CSS 4** (Styling)<br>• **kernelsu** (Root bridge & Package Manager API) | Antarmuka manajemen visual di dalam KernelSU / Magisk Manager untuk pengaturan token, switch game, rename game, dan melihat log status daemon. |
-| **Module Packaging & Installer** | POSIX Shell Scripting (sh/bash) | • Android Busybox / Toybox shell<br>• Android `pm` (Package Manager)<br>• Android `dumpsys` | Skrip instalasi (`customize.sh`), automasi boot (`service.sh`), aksi WebUI (`action.sh`), dan uninstaller (`uninstall.sh`). |
-| **Network Protocol** | Discord Gateway API v10 | • WebSocket RFC 6455 over TLS (Port 443)<br>• JSON-based Opcodes | Otentikasi dan push status aktivitas Rich Presence ke server Discord. |
+## Pendekatan
 
----
+Modul ini tidak menggunakan service aplikasi Android atau izin aksesibilitas. Deteksi game dilakukan oleh daemon dengan membaca aplikasi foreground melalui `dumpsys`, dan koneksi ke Discord dikelola oleh daemon yang sama.
 
-## Arsitektur & Cara Kerja
+Pemakaian sumber daya daemon sekitar 1–2 MB RAM dengan beban CPU yang mendekati nol pada kondisi idle.
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                          PERANGKAT ANDROID (ROOT)                      │
-│                                                                        │
-│   ┌────────────────────────────────────────────────────────────────┐   │
-│   │                     WebUI (Vue 3 SPA)                          │   │
-│   │   • HomeView.vue       • GamesView.vue     • SettingsView.vue  │   │
-│   │   • apps.js            • games.js store    • status.js store   │   │
-│   └────────────────────────────────┬───────────────────────────────┘   │
-│                                    │ Root File I/O via ksuExec         │
-│                                    ▼                                   │
-│   ┌────────────────────────────────────────────────────────────────┐   │
-│   │              Directory: /data/adb/.config/drpc/                │   │
-│   │   • token              • config.json       • gamelist.json     │   │
-│   │   • status.json        • drpc.log                              │   │
-│   └────────────────────────────────┬───────────────────────────────┘   │
-│                                    │ Linux inotify (File Watcher)      │
-│                                    ▼                                   │
-│   ┌────────────────────────────────────────────────────────────────┐   │
-│   │               rpcdroid (C Background Daemon)               │   │
-│   │                                                                │   │
-│   │   ┌─────────────────────┐            ┌─────────────────────┐   │   │
-│   │   │    detector.c       │            │      gateway.c      │   │   │
-│   │   │ (dumpsys poll ~5s)  ├───────────►│ (Op 3 Presence)     │   │   │
-│   │   └─────────────────────┘            └──────────┬──────────┘   │   │
-│   │              ▲                                  │              │   │
-│   │              │                                  ▼              │   │
-│   │      Android OS Framework              websocket.c (mbedTLS)   │   │
-│   │    (Activity / WindowManager)                   │              │   │
-│   └─────────────────────────────────────────────────┼──────────────┘   │
-└─────────────────────────────────────────────────────┼──────────────────┘
-                                                      │
-                                                      │ WSS (Encrypted TLS 443)
-                                                      ▼
-                                       ┌─────────────────────────────┐
-                                       │    Discord Gateway Server   │
-                                       │ (gateway.discord.gg:443)    │
-                                       └──────────────┬──────────────┘
-                                                      │
-                                                      ▼
-                                       ┌─────────────────────────────┐
-                                       │  Discord Desktop / Mobile   │
-                                       │    Menampilkan Aktivitas    │
-                                       │  Playing [Nama Game] + Icon │
-                                       └─────────────────────────────┘
-```
+## Fitur
 
----
+- Deteksi game yang sedang berjalan secara berkala (bawaan: setiap 5 detik).
+- Database 470+ package game Android. Game yang terpasang di perangkat dipetakan otomatis saat instalasi.
+- Dukungan ikon untuk game yang belum terdaftar di Discord (lihat [Mekanisme ikon](#mekanisme-ikon)).
+- WebUI untuk mengatur token, mengaktifkan atau menonaktifkan game, mengubah nama tampilan, dan melihat log.
+- Pemuatan ulang konfigurasi otomatis tanpa restart daemon.
+- Binary untuk `arm64-v8a`, `armeabi-v7a`, dan `x86_64`.
 
-## Struktur File
+> [!WARNING]
+> Modul ini autentikasi ke Discord memakai **user token** akun, bukan token bot.
+>
+> - Token setara dengan kata sandi dan tidak boleh dibagikan. Token disimpan di `/data/adb/.config/drpc/token`, yang hanya dapat dibaca melalui akses root.
+> - Ketentuan layanan Discord tidak mengizinkan otomasi akun pengguna (*self-bot*). Risiko terhadap akun ditanggung pengguna. Memakai akun sekunder dapat dipertimbangkan.
 
-```
-RPCDroid/
-├── build.sh                       # Skrip utama builder seluruh modul
-├── README.md                      # Dokumentasi proyek
-├── rpcdroid-v0.0.1.zip            # Paket ZIP modul siap flash
-├── .gitignore
-│
-├── daemon/                        # SOURCE CODE DAEMON (C NDK)
-│   ├── main.c                     # Entry point daemon & inotify hot-reload
-│   ├── gateway.c / gateway.h      # Protokol Discord Gateway v10
-│   ├── websocket.c / websocket.h  # RFC 6455 WebSocket client via mbedTLS + REST resolver
-│   ├── detector.c / detector.h    # Pendeteksi aplikasi foreground Android
-│   ├── config.c / config.h        # Loader JSON config, gamelist, & token
-│   ├── log.c / log.h              # File logger thread-safe
-│   ├── cJSON.c / cJSON.h          # Parser & serializer JSON C ultralight
-│   ├── mbedtls_config.h           # Konfigurasi minimal TLS client
-│   ├── entropy_hardware_alt.c     # Random generator /dev/urandom untuk mbedTLS
-│   ├── Android.mk                 # Skrip build NDK compiler flags & target
-│   ├── Application.mk             # Konfigurasi platform & arsitektur ABI
-│   └── build.sh                   # Skrip kompilasi daemon via NDK
-│
-├── webui/                         # SOURCE CODE WEBUI (Vue 3 + Vite)
-│   ├── index.html                 # Shell HTML WebUI
-│   ├── package.json               # Dependensi & script WebUI
-│   ├── vite.config.js             # Konfigurasi output Vite ke module/webroot/
-│   └── src/
-│       ├── main.js                # Entry point aplikasi Vue 3
-│       ├── App.vue                # Root layout & navbar view
-│       ├── router/index.js        # Vue Router (routes: /, /games, /settings)
-│       ├── views/
-│       │   ├── HomeView.vue       # Status daemon, active game, kontrol start/stop
-│       │   ├── GamesView.vue      # List game, toggle, edit nama, link icon/appId
-│       │   └── SettingsView.vue   # Token input, polling rate, app_id, log viewer
-│       ├── stores/
-│       │   ├── config.js          # Store Pinia manajemen config.json & token
-│       │   ├── games.js           # Store Pinia manajemen gamelist.json & auto-sync
-│       │   └── status.js          # Store Pinia pembaca status runtime & log
-│       └── helpers/
-│           ├── apps.js            # Database KNOWN_GAMES & deteksi paket Android
-│           └── exec.js            # Wrapper perintah shell root & file I/O
-│
-└── module/                        # STRUKTUR MODUL MAGISK / KSU SIAP FLASH
-    ├── module.prop                # Metadata modul (v0.0.1, id, author)
-    ├── customize.sh               # Skrip instalasi & migrasi saat flash
-    ├── service.sh                 # Background service runner saat boot
-    ├── action.sh                  # Handler tombol "Action" di KernelSU Manager
-    ├── uninstall.sh               # Skrip pembersih saat modul dihapus
-    ├── gamelist.txt               # Daftar 470+ package game Android populer
-    ├── libs/                      # Binary executable hasil kompilasi daemon
-    │   ├── arm64-v8a/rpcdroid
-    │   ├── armeabi-v7a/rpcdroid
-    │   └── x86_64/rpcdroid
-    └── webroot/                   # Bundle WebUI statis (index.html, JS, CSS)
-```
+## Keterbatasan
 
----
+- Memerlukan akses root. Modul tidak berfungsi pada perangkat tanpa root.
+- Hanya game yang terdaftar di `gamelist.json` yang dilaporkan ke Discord.
+- Deteksi bersifat polling, sehingga perubahan status dapat tertunda hingga sekitar satu interval (bawaan 5 detik).
+- Bergantung pada Discord Gateway yang tidak didokumentasikan untuk akun pengguna. Perubahan di sisi Discord dapat memengaruhi fungsi modul sewaktu-waktu.
+- Versi saat ini (0.0.1) masih awal dan belum diuji luas pada berbagai perangkat.
 
-## Alur Kerja Sistem
-
-1. **Inisialisasi Pertama (First Install)**:
-   * Pengguna menginstal file zip modul melalui KernelSU / Magisk.
-   * `customize.sh` berjalan, menyalin binary `rpcdroid` yang cocok dengan CPU ponsel ke `$MODPATH/bin/`.
-   * `customize.sh` memindai direktori `/data/data/<package>` untuk mendeteksi game yang sudah terinstall, mencocokkannya dengan `gamelist.txt`, lalu menyusun berkas `/data/adb/.config/drpc/gamelist.json` lengkap dengan `app_id` masing-masing game.
-2. **Konfigurasi Akun Pengguna**:
-   * Pengguna membuka WebUI modul, pada tab **Settings** menempelkan Discord User Token lalu menyimpannya.
-   * WebUI menulis token ke `/data/adb/.config/drpc/token`.
-3. **Daemon Berjalan & Autentikasi WebSocket**:
-   * Daemon `rpcdroid` membaca token dan menyambungkan koneksi TLS ke `gateway.discord.gg:443`.
-   * Setelah koneksi WebSocket terbuka, Discord mengirimkan *Opcode 10 Hello*. Daemon menyalakan thread *Heartbeat*.
-   * Daemon mengirimkan *Opcode 2 Identify*. Discord memvalidasi token dan menerima sesi.
-4. **Siklus Deteksi & Pengiriman Rich Presence**:
-   * Setiap interval (default: 5 detik), modul mengecek jendela foreground Android.
-   * Daemon mendeteksi package aktif, mencocokkannya ke `gamelist.json`.
-   * Daemon membuat payload JSON *Opcode 3 Presence Update* yang memuat nama game, UNIX timestamp waktu mulai main, dan `application_id`.
-   * Server Discord menampilkan Rich Presence dengan nama game dan icon.
-
----
-
-## Mekanisme Icon Discord & Fallback
-
-Hierarki resolusi icon (prioritas):
-
-1. **Prioritas 1 — Game terdaftar di database Discord**:
-   * Menggunakan `app_id` resmi (contoh: Mobile Legends, Genshin Impact, Arknights, dll.).
-   * Resolusi media proxy dilewati total. Discord otomatis menampilkan icon resmi dari CDN Discord.
-2. **Prioritas 2 — Fallback untuk game belum terdaftar (unlisted)**:
-   * Game tidak punya `app_id` di database Discord (seperti Monster Hunter Outlanders).
-   * Menggunakan generic Application ID (`962990036020756480`) sebagai base RPC.
-   * Icon (URL `https://` dari config/gamelist atau Play Store) dikonversi native via endpoint Discord `external-assets` menjadi `mp:external/...` (HTTP POST over TLS langsung di daemon C, tanpa `curl`).
-   * Mengirim `mp:external/...` ke gateway sebagai `large_image`, sehingga icon game tetap muncul.
-
-Catatan: tautan gambar mentah (`https://play-lh.googleusercontent.com/...`) **tidak** bisa dikirim langsung ke gateway — Discord menolak dan icon menjadi pecah. Karena itu konversi ke `mp:external/...` wajib.
-
----
-
-## Struktur File Konfigurasi di Perangkat
-
-Semua data runtime modul disimpan terpusat di direktori `/data/adb/.config/drpc/`:
-
-| Nama File | Format | Deskripsi |
-|---|---|---|
-| `token` | Plain text | Discord user authorization token. |
-| `config.json` | JSON | Pengaturan daemon: polling interval (`poll_interval`), status online (`status`), log level (`log_level`), dan fallback application ID (`application_id`). |
-| `gamelist.json` | JSON | Objek daftar game aktif: key berupa package name Android, value berisi nama game, Discord `app_id`, dan flag status `enabled`. |
-| `status.json` | JSON | Berkas status runtime yang ditulis oleh daemon (running/stopped, active game, gateway connection status). Dibaca oleh WebUI. |
-| `drpc.log` | Plain text | Berkas log sistem untuk diagnosa dan debugging error. |
-
----
-
-## Instalasi & Penggunaan
+## Instalasi
 
 ### Persyaratan
 
-* Perangkat Android 10 atau lebih baru (API Level 29+).
-* Root solution: **KernelSU**, **APatch**, atau **Magisk**.
-* Arsitektur CPU: `arm64-v8a`, `armeabi-v7a`, atau `x86_64`.
-* Akun Discord aktif.
+- Android 10 atau lebih baru (API 29+)
+- KernelSU, APatch, atau Magisk
+- Akun Discord
 
-### Langkah Instalasi
+### Langkah
 
-1. Unduh rilis file zip modul terbaru: `rpcdroid-v0.0.1.zip`.
-2. Buka aplikasi **KernelSU / APatch / Magisk Manager**.
-3. Masuk ke tab **Modules** → **Install from storage** → pilih file zip tersebut.
-4. Tunggu proses instalasi selesai, lalu **Reboot ponsel**.
-5. Setelah reboot, buka **WebUI Modul** (melalui tombol WebUI di KernelSU/APatch atau tombol Action di Magisk).
-6. Masuk ke menu **Settings**, tempelkan **Discord User Token** Anda, lalu tekan **Save**.
-7. Masuk ke halaman **Home**, lalu tekan tombol **Start** jika status belum Running.
-8. Jalankan game Anda di ponsel — status Discord Anda akan langsung berubah secara otomatis!
+1. Unduh `rpcdroid-v0.0.1.zip` dari halaman rilis.
+2. Di aplikasi manajer root, buka **Modules**, pilih **Install from storage**, lalu pilih berkas zip tersebut.
+3. Reboot perangkat setelah instalasi selesai.
+4. Buka WebUI modul (tombol WebUI di KernelSU/APatch, atau tombol Action di Magisk).
+5. Di menu **Settings**, isi Discord token lalu tekan **Save**. Cara memperolehnya dijelaskan di [bagian ini](#cara-mendapatkan-discord-token).
+6. Di halaman **Home**, tekan **Start** jika status belum *Running*.
+7. Jalankan game. Status Discord akan diperbarui otomatis.
+
+### Pemecahan masalah
+
+| Gejala | Pemeriksaan |
+|---|---|
+| Status tidak muncul | Pastikan daemon berstatus *Running* di halaman Home dan token sudah tersimpan. |
+| Game tidak terdeteksi | Buka halaman **Games**, pastikan game ada di daftar dan togglenya aktif. |
+| Ikon tidak tampil | Lihat [Mekanisme ikon](#mekanisme-ikon). Game yang belum terdaftar memerlukan URL ikon yang valid. |
+| Penyebab tidak jelas | Periksa log di **Settings** atau berkas `/data/adb/.config/drpc/drpc.log`. |
+
+### Melaporkan masalah
+
+Saat membuka issue, sertakan informasi berikut agar masalah lebih mudah ditelusuri:
+
+- Versi modul, versi Android, merek/tipe perangkat, dan arsitektur CPU
+- Root solution yang dipakai beserta versinya (Magisk, KernelSU, atau APatch)
+- Isi `drpc.log` (hapus token jika muncul) dan `status.json`
+- Nama package game yang bermasalah
+- Langkah untuk mereproduksi masalah
+
+Jangan pernah menyertakan Discord token pada laporan.
 
 ---
 
-## Panduan Mendapatkan Discord Token
+# Dokumentasi teknis
 
-> ⚠️ **PERINGATAN KEAMANAN**: Token akun Discord setara dengan password Anda. Jangan pernah membagikan token Anda kepada siapapun. Modul ini hanya menyimpan token secara lokal di direktori `/data/adb/.config/drpc/token` yang hanya bisa diakses oleh akses ROOT.
+## Cara kerja
 
-### Cara 1: Menggunakan Browser di HP Android (Praktis)
+```mermaid
+flowchart TD
+    subgraph HP["Perangkat Android (root)"]
+        UI["WebUI (Vue 3)<br/>Home · Games · Settings"]
+        CFG[("/data/adb/.config/drpc/<br/>token · config.json · gamelist.json<br/>status.json · drpc.log")]
+        subgraph D["rpcdroid (daemon C)"]
+            DET["detector.c<br/>cek app foreground tiap ~5 detik"]
+            GW["gateway.c<br/>Discord Gateway v10"]
+            WS["websocket.c<br/>WebSocket + mbedTLS"]
+            DET --> GW --> WS
+        end
+        UI -- "baca/tulis via ksuExec" --> CFG
+        CFG -- "inotify (hot-reload)" --> D
+    end
+    WS -- "WSS / TLS port 443" --> DC["gateway.discord.gg"]
+    DC --> CLIENT["Discord Desktop / Mobile<br/>Playing [Nama Game]"]
+```
 
-1. Buka browser (Chrome/Kiwi/Brave) di ponsel Android Anda.
-2. Buka `https://discord.com/login` dan masuk ke akun Anda.
-3. Setelah login berhasil, arahkan URL ke `https://discord.com/app`.
-4. Di bilah alamat browser, ketik kode berikut (pastikan awalan `javascript:` tidak terhapus saat di-paste):
+WebUI dan daemon tidak berkomunikasi langsung. Keduanya berbagi berkas di `/data/adb/.config/drpc/`. WebUI menulis konfigurasi, daemon memantaunya dengan `inotify` dan memuat ulang saat ada perubahan, lalu menulis `status.json` yang dibaca kembali oleh WebUI.
+
+### Alur dari instalasi hingga status tampil
+
+1. **Instalasi.** `customize.sh` menyalin binary `rpcdroid` sesuai arsitektur CPU, lalu memindai `/data/data/<package>` untuk menemukan game terpasang. Hasilnya dicocokkan dengan `gamelist.txt` dan disusun menjadi `gamelist.json` beserta `app_id` tiap game.
+2. **Konfigurasi.** Token yang diisi di WebUI ditulis ke berkas `token`.
+3. **Koneksi.** Daemon membuka koneksi TLS ke `gateway.discord.gg:443` dan melakukan handshake WebSocket.
+4. **Autentikasi.** Daemon menerima Opcode 10 (*Hello*), menjalankan thread heartbeat, lalu mengirim Opcode 2 (*Identify*).
+5. **Deteksi.** Pada setiap interval, daemon membaca aplikasi foreground dan mencocokkannya dengan `gamelist.json`.
+6. **Pengiriman.** Jika cocok dan game diaktifkan, daemon mengirim Opcode 3 (*Presence Update*) berisi nama game, waktu mulai (UNIX timestamp), dan `application_id`.
+
+| Opcode | Arah | Fungsi |
+|---|---|---|
+| 10 Hello | Discord → daemon | Menyampaikan interval heartbeat |
+| 1 Heartbeat | Daemon → Discord | Menjaga koneksi tetap aktif |
+| 2 Identify | Daemon → Discord | Autentikasi dengan token |
+| 3 Presence Update | Daemon → Discord | Mengirim aktivitas game |
+
+## Mekanisme ikon
+
+Ikon ditentukan melalui dua jalur, dengan urutan prioritas berikut.
+
+**1. Game terdaftar di Discord.** Daemon memakai `app_id` resmi game tersebut (misalnya Mobile Legends, Genshin Impact, Arknights). Discord menampilkan ikon dari CDN-nya sendiri.
+
+**2. Game belum terdaftar** (contoh: Monster Hunter Outlanders). Daemon memakai Application ID generik (`962990036020756480`) sebagai dasar. URL ikon dari konfigurasi, `gamelist.json`, atau Play Store dikonversi menjadi alamat `mp:external/...` melalui endpoint `external-assets` Discord. Permintaan HTTP POST ini dikirim langsung oleh daemon melalui TLS tanpa `curl`. Hasilnya dikirim ke gateway sebagai `large_image`.
+
+Konversi pada jalur kedua diperlukan karena Discord menolak URL `https://` mentah yang dikirim langsung ke gateway, sehingga ikon tampil rusak.
+
+## Tech stack
+
+| Komponen | Teknologi | Peran |
+|---|---|---|
+| Daemon | C99, Android NDK (Clang), mbedTLS 3.6.0, cJSON, POSIX socket, inotify | Koneksi ke Gateway, deteksi game, pemrosesan JSON, hot-reload konfigurasi |
+| WebUI | Vue 3 (Composition API), Vite 7, Pinia 2, Vue Router 4, Tailwind CSS 4, API `kernelsu` | Pengaturan token, daftar game, dan log |
+| Instalasi dan service | POSIX shell, `pm`, `dumpsys` | `customize.sh`, `service.sh`, `action.sh`, `uninstall.sh` |
+| Protokol | Discord Gateway API v10, WebSocket (RFC 6455) over TLS | Autentikasi dan pengiriman Rich Presence |
+
+<details>
+<summary><strong>Struktur proyek</strong></summary>
+
+```
+RPCDroid/
+├── build.sh                       # Builder utama seluruh modul
+├── README.md
+├── rpcdroid-v0.0.1.zip            # Paket modul siap flash
+├── .gitignore
+│
+├── daemon/                        # Source daemon (C, NDK)
+│   ├── main.c                     # Entry point dan hot-reload inotify
+│   ├── gateway.c / .h             # Protokol Discord Gateway v10
+│   ├── websocket.c / .h           # Klien WebSocket via mbedTLS + resolver REST
+│   ├── detector.c / .h            # Pendeteksi aplikasi foreground
+│   ├── config.c / .h              # Pemuat config, gamelist, dan token
+│   ├── log.c / .h                 # Logger berkas, aman untuk multi-thread
+│   ├── cJSON.c / .h               # Parser dan serializer JSON
+│   ├── mbedtls_config.h           # Konfigurasi TLS client minimal
+│   ├── entropy_hardware_alt.c     # Sumber acak /dev/urandom untuk mbedTLS
+│   ├── Android.mk                 # Flag dan target build NDK
+│   ├── Application.mk             # Platform dan ABI
+│   └── build.sh                   # Kompilasi daemon via NDK
+│
+├── webui/                         # Source WebUI (Vue 3 + Vite)
+│   ├── index.html
+│   ├── package.json
+│   ├── vite.config.js             # Output build ke module/webroot/
+│   └── src/
+│       ├── main.js                # Entry point Vue
+│       ├── App.vue                # Layout dan navigasi
+│       ├── router/index.js        # Rute: /, /games, /settings
+│       ├── views/
+│       │   ├── HomeView.vue       # Status daemon, game aktif, tombol start/stop
+│       │   ├── GamesView.vue      # Daftar game, toggle, ubah nama, ikon/appId
+│       │   └── SettingsView.vue   # Token, interval polling, app_id, log
+│       ├── stores/
+│       │   ├── config.js          # Pinia: config.json dan token
+│       │   ├── games.js           # Pinia: gamelist.json dan sinkronisasi otomatis
+│       │   └── status.js          # Pinia: status runtime dan log
+│       └── helpers/
+│           ├── apps.js            # Database KNOWN_GAMES dan deteksi paket
+│           └── exec.js            # Pembungkus shell root dan file I/O
+│
+└── module/                        # Struktur modul Magisk / KernelSU
+    ├── module.prop                # Metadata modul
+    ├── customize.sh               # Instalasi dan migrasi saat flash
+    ├── service.sh                 # Menjalankan daemon saat boot
+    ├── action.sh                  # Handler tombol Action
+    ├── uninstall.sh               # Pembersihan saat modul dihapus
+    ├── gamelist.txt               # 470+ package game populer
+    ├── libs/                      # Binary hasil kompilasi
+    │   ├── arm64-v8a/rpcdroid
+    │   ├── armeabi-v7a/rpcdroid
+    │   └── x86_64/rpcdroid
+    └── webroot/                   # Bundle WebUI statis
+```
+
+</details>
+
+<details>
+<summary><strong>Berkas konfigurasi di perangkat</strong></summary>
+
+<br>
+
+Seluruh data runtime disimpan di `/data/adb/.config/drpc/`.
+
+| Berkas | Format | Isi |
+|---|---|---|
+| `token` | Teks biasa | Discord user token |
+| `config.json` | JSON | `poll_interval`, `status` (status online), `log_level`, dan `application_id` cadangan |
+| `gamelist.json` | JSON | Kunci berupa package name; nilai berisi nama game, `app_id` Discord, dan flag `enabled` |
+| `status.json` | JSON | Ditulis daemon: running/stopped, game aktif, status koneksi gateway. Dibaca WebUI |
+| `drpc.log` | Teks biasa | Log untuk diagnosa |
+
+</details>
+
+<details id="cara-mendapatkan-discord-token">
+<summary><strong>Cara mendapatkan Discord token</strong></summary>
+
+<br>
+
+> Token setara dengan kata sandi akun. Jangan dibagikan, dan jangan menjalankan kode dari sumber yang tidak dipercaya di konsol atau bilah alamat.
+
+**Melalui browser di ponsel**
+
+1. Buka `https://discord.com/login` dan masuk.
+2. Setelah berhasil, buka `https://discord.com/app`.
+3. Di bilah alamat, ketik kode berikut. Pastikan awalan `javascript:` tidak hilang saat ditempel.
+
    ```javascript
    javascript:void(document.title=((webpackChunkdiscord_app.push([[''],{},e=>{m=[];for(let c in e.c)m.push(e.c[c])}]),m).find(m=>m?.exports?.default?.getToken!==void 0).exports.default.getToken()))
    ```
-5. Tekan Enter / Kunjungi. Judul tab browser Anda akan otomatis berubah menjadi sederet teks token Discord Anda. Salin teks tersebut.
 
-### Cara 2: Menggunakan PC (DevTools Console)
+4. Judul tab akan berubah menjadi token akun. Salin teks tersebut.
 
-1. Buka aplikasi Discord Desktop atau buka `https://discord.com/app` di browser PC.
-2. Tekan tombol `Ctrl + Shift + I` (atau `F12`) untuk membuka Developer Tools.
-3. Klik tab **Console**.
-4. Tempelkan kode berikut lalu tekan Enter:
+**Melalui PC (DevTools)**
+
+1. Buka Discord Desktop, atau `https://discord.com/app` di browser.
+2. Tekan `Ctrl + Shift + I` (atau `F12`) dan buka tab **Console**.
+3. Tempelkan kode berikut lalu tekan Enter.
+
    ```javascript
    (webpackChunkdiscord_app.push([[''],{},e=>{m=[];for(let c in e.c)m.push(e.c[c])}]),m).find(m=>m?.exports?.default?.getToken!==void 0).exports.default.getToken()
    ```
-5. Salin string token yang muncul di konsol dan masukkan ke WebUI modul di ponsel Anda.
 
----
+4. Salin token yang muncul, lalu isikan di WebUI modul.
 
-## Kompilasi dari Source
+</details>
 
-### Kebutuhan Sistem
+<details>
+<summary><strong>Kompilasi dari source</strong></summary>
 
-* **Android NDK** (r25c atau versi lebih baru, disarankan r28+).
-* **Node.js** (v18+) dan **npm**.
-* **Python 3** (untuk pengemasan zip) atau utilitas `zip`.
+<br>
 
-### Perintah Build Otomatis
+**Kebutuhan**
+
+- Android NDK r25c atau lebih baru (disarankan r28+)
+- Node.js 18+ dan npm
+- Python 3 atau utilitas `zip` untuk pengemasan
+
+**Langkah manual**
 
 ```bash
-# 1. Kompilasi Daemon C (menggunakan NDK ndk-build)
-export ANDROID_NDK_HOME="C:/Users/<user>/AppData/Local/Android/Sdk/ndk/<versi>"
+# 1. Daemon
+export ANDROID_NDK_HOME="/path/ke/ndk/<versi>"
 cd daemon
 ndk-build -j8
 cd ..
 
-# 2. Kompilasi WebUI Frontend
+# 2. WebUI
 cd webui
 npm install
 npm run build
 cd ..
 
-# 3. Paketkan ke ZIP Modul Magisk/KernelSU
-python -c "
-import zipfile, os
-zip_path = 'rpcdroid-v0.0.1.zip'
-with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-    for root, dirs, files in os.walk('module'):
-        for f in files:
-            full_path = os.path.join(root, f)
-            rel_path = os.path.relpath(full_path, 'module').replace('\\\\', '/')
-            zf.write(full_path, rel_path)
-print('Module packaged successfully:', zip_path)
-"
+# 3. Kemas menjadi zip modul
+python3 - <<'EOF'
+import os, zipfile
+
+with zipfile.ZipFile("rpcdroid-v0.0.1.zip", "w", zipfile.ZIP_DEFLATED) as zf:
+    for root, _, files in os.walk("module"):
+        for name in files:
+            path = os.path.join(root, name)
+            arcname = os.path.relpath(path, "module").replace(os.sep, "/")
+            zf.write(path, arcname)
+
+print("Selesai: rpcdroid-v0.0.1.zip")
+EOF
 ```
 
----
+Ketiga langkah tersebut juga dirangkum dalam `build.sh` di root repositori.
 
-## Kredit & Referensi
-
-Proyek ini dibangun dengan memanfaatkan dan merujuk pada karya/proyek berikut. Terima kasih kepada para pembuatnya:
-
-* **[Kizzy (dead8309/Kizzy)](https://github.com/dead8309/Kizzy)** — Aplikasi Android Discord Rich Presence; referensi untuk pendekatan deteksi aplikasi foreground, external proxy image, dan integrasi Discord Gateway pada Android.
-* **[KizzyRPC (dead8309/KizzyRPC)](https://github.com/dead8309/KizzyRPC)** — Library Android Discord RPC; referensi struktur Activity/Assets dan penggunaan `application_id` + `external-assets` endpoint.
-* **[navidrome/discord-rich-presence-plugin](https://github.com/navidrome/discord-rich-presence-plugin)** — Referensi untuk alur registrasi gambar eksternal via Discord external assets API (`mp:external/...`) dan caching.
-* **[Mbed-TLS / mbedtls](https://github.com/Mbed-TLS/mbedtls)** — Library TLS yang digunakan daemon untuk koneksi terenkripsi ke Discord Gateway (lisensi Apache 2.0).
-* **[cJSON (DaveGamble/cJSON)](https://github.com/DaveGamble/cJSON)** — Parser/serializer JSON ringan untuk C (lisensi MIT).
-* **[KernelSU](https://github.com/tiann/KernelSU)** — Root solution & WebUI bridge (`kernelsu` JS API) yang digunakan modul.
-* **[Vue.js](https://vuejs.org/)**, **[Vite](https://vitejs.dev/)**, **[Pinia](https://pinia.vuejs.org/)**, **[Vue Router](https://router.vuejs.org/)**, **[Tailwind CSS](https://tailwindcss.com/)** — Stack frontend WebUI.
+</details>
 
 ---
 
-## Lisensi & Penafian (Disclaimer)
+## Kredit
 
-Modul ini menghubungkan WebSocket client langsung ke Discord Gateway menggunakan user token dengan identifikasi desktop client. Hal ini secara teknis berada di luar API resmi bot Discord (*Self-bot presence*). Gunakan dengan bijak dan tanggung jawab Anda sendiri. Modul ini sepenuhnya *open-source* dan didistribusikan untuk tujuan edukasi dan optimasi performa sistem Android.
+- [Kizzy](https://github.com/dead8309/Kizzy) dan [KizzyRPC](https://github.com/dead8309/KizzyRPC): rujukan pendekatan deteksi aplikasi foreground, struktur Activity/Assets, serta penggunaan `application_id` dan endpoint `external-assets`.
+- [navidrome/discord-rich-presence-plugin](https://github.com/navidrome/discord-rich-presence-plugin): rujukan alur pendaftaran gambar eksternal (`mp:external/...`) dan caching.
+- [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) (Apache 2.0): TLS untuk koneksi ke Gateway.
+- [cJSON](https://github.com/DaveGamble/cJSON) (MIT): parser JSON untuk C.
+- [KernelSU](https://github.com/tiann/KernelSU): root solution dan API `kernelsu` untuk WebUI.
+- [Vue](https://vuejs.org/), [Vite](https://vitejs.dev/), [Pinia](https://pinia.vuejs.org/), [Vue Router](https://router.vuejs.org/), dan [Tailwind CSS](https://tailwindcss.com/): fondasi WebUI.
+
+## Lisensi dan penafian
+
+Proyek ini bersifat open-source dan didistribusikan untuk tujuan edukasi serta optimasi sistem Android. Daemon terhubung ke Discord Gateway memakai user token dengan identitas klien desktop, yang berada di luar API bot resmi Discord. Penggunaan sepenuhnya menjadi tanggung jawab pengguna.
+
+<!-- Tambahkan nama lisensi dan berkas LICENSE di sini, misalnya: "Dirilis di bawah lisensi MIT. Lihat LICENSE." -->
