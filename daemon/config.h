@@ -1,0 +1,38 @@
+#pragma once
+#include <stdbool.h>
+
+#define CONFIG_DIR      "/data/adb/.config/drpc"
+#define TOKEN_FILE      CONFIG_DIR "/token"
+#define CONFIG_FILE     CONFIG_DIR "/config.json"
+#define GAMELIST_FILE   CONFIG_DIR "/gamelist.json"
+#define STATUS_FILE     CONFIG_DIR "/status.json"
+#define LOG_FILE        CONFIG_DIR "/drpc.log"
+
+typedef struct {
+    int  poll_interval;       /* seconds between foreground app checks, default 5 */
+    char status[16];          /* "online", "idle", "dnd", default "online" */
+    char application_id[32]; /* Discord application ID */
+    int  log_level;           /* 0=debug 1=info 2=warn 3=error */
+} Config;
+
+typedef struct GameEntry {
+    char package[256];
+    char name[256];
+    char icon[512];
+    char app_id[32];
+    bool enabled;
+    struct GameEntry *next;
+} GameEntry;
+
+extern Config     g_config;
+extern GameEntry *g_gamelist;
+extern char       g_token[512];
+
+int         config_load(void);
+int         gamelist_load(void);
+int         token_load(void);
+void        gamelist_free(void);
+const char *gamelist_get_name(const char *package);   /* NULL if not found/disabled */
+const char *gamelist_get_icon(const char *package);   /* NULL if not found/no icon */
+const char *gamelist_get_app_id(const char *package); /* NULL if not found/no custom app_id */
+void        config_write_status(bool connected, const char *game, const char *discord_username);

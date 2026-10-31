@@ -1,0 +1,19 @@
+# Dependencies
+webui/node_modules/
+
+# Build artifacts
+daemon/build/
+daemon/libs/
+*.zip
+
+# Logs
+drpc.log
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
