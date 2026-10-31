@@ -85,3 +85,22 @@ char *detect_foreground_app(void)
     }
     return first_pkg;
 }
+
+/* Check if a package's process is still alive (foreground or background) */
+int process_running(const char *package)
+{
+    if (!package || !package[0]) return 0;
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "pidof %s 2>/dev/null", package);
+    FILE *fp = popen(cmd, "r");
+    if (!fp) return 0;
+    char buf[256] = {0};
+    int alive = 0;
+    if (fgets(buf, sizeof(buf), fp)) {
+        for (char *p = buf; *p; p++) {
+            if (*p != ' ' && *p != '\n' && *p != '\r' && *p != '\t') { alive = 1; break; }
+        }
+    }
+    pclose(fp);
+    return alive;
+}

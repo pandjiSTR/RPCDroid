@@ -26,9 +26,26 @@ int main(void)
     log_init(LOG_FILE, LOG_LEVEL_INFO);
     LOG_INFO("rpcdroid starting");
 
+    char *current_game = NULL;
+    long long game_start_ms = 0;
+
     config_load();
     token_load();
     gamelist_load();
+
+    /* Restore persisted playtime if the game process is still alive */
+    {
+        char saved_pkg[256] = {0};
+        long long saved_start = 0;
+        if (runtime_load(saved_pkg, sizeof(saved_pkg), &saved_start) == 0 &&
+            saved_pkg[0] && process_running(saved_pkg) && gamelist_get_name(saved_pkg)) {
+            current_game = strdup(saved_pkg);
+            game_start_ms = saved_start;
+            LOG_INFO("Restored playtime for %s (start=%lld)", saved_pkg, saved_start);
+        } else {
+            runtime_clear();
+        }
+    }
 
     if (g_config.log_level > 0)
         g_log_level = g_config.log_level;
@@ -58,10 +75,19 @@ int main(void)
 
     config_write_status(true, NULL, gw ? gw->username : NULL);
 
-    /* ── Main loop ────────────────────────────────────────────────────────── */
+    /* Send initial presence (restore timer or clear stale status) */
+    if (gw) {
+        if (current_game) {
+            const char *gname = gamelist_get_name(current_game);
+            const char *gicon = gamelist_get_icon(current_game);
+            const char *gappid = gamelist_get_app_id(current_game);
+            const char *active_app_id = (gappid && gappid[0]) ? gappid : g_config.application_id;
+            if (gname) gateway_send_presence(gw, gname, game_start_ms, active_app_id, NULL, gicon);
+        } else {
+            gateway_send_presence(gw, NULL, 0, g_config.application_id, NULL, NULL);
+        }
+    }
     time_t last_poll = 0;
-    char  *current_game = NULL;
-    long long game_start_ms = 0;
 
     while (g_running) {
         time_t now = time(NULL);
@@ -125,7 +151,7 @@ int main(void)
         if (now - last_poll >= g_config.poll_interval) {
             last_poll = now;
             char *fg = detect_foreground_app();
-            const char *gname = fg ? gamelist_get_name(fg) : NULL;
+            const char *fg_name = fg ? gamelist_get_name(fg) : NULL;
 
             /* Log when foreground app transitions */
             static char *last_logged_fg = NULL;
@@ -134,35 +160,47 @@ int main(void)
                 (!fg && last_logged_fg[0] != '\0')) {
                 LOG_INFO("Foreground: %s (matched game: %s)",
                          fg ? fg : "(none)",
-                         gname ? gname : "no");
+                         fg_name ? fg_name : "no");
                 free(last_logged_fg);
                 last_logged_fg = fg ? strdup(fg) : strdup("");
             }
 
-            if (gname) {
+            if (fg_name) {
                 if (!current_game || strcmp(fg, current_game) != 0) {
                     free(current_game);
                     current_game = strdup(fg);
-                    game_start_ms = (long long)time(NULL) * 1000LL;
+                    char saved_pkg[256] = {0};
+                    long long saved_start = 0;
+                    if (runtime_load(saved_pkg, sizeof(saved_pkg), &saved_start) == 0 &&
+                        strcmp(saved_pkg, fg) == 0 && saved_start > 0) {
+                        game_start_ms = saved_start;
+                    } else {
+                        game_start_ms = (long long)time(NULL) * 1000LL;
+                        runtime_save(fg, game_start_ms);
+                    }
                     const char *gicon = gamelist_get_icon(fg);
                     const char *gappid = gamelist_get_app_id(fg);
                     const char *active_app_id = (gappid && gappid[0]) ? gappid : g_config.application_id;
                     LOG_INFO("Game detected: %s (%s, icon: %s, app_id: %s)",
-                             gname, fg, gicon ? gicon : "none", active_app_id);
-                    if (gw) gateway_send_presence(gw, gname, game_start_ms,
+                             fg_name, fg, gicon ? gicon : "none", active_app_id);
+                    if (gw) gateway_send_presence(gw, fg_name, game_start_ms,
                                                   active_app_id,
-                                                  g_config.status,
+                                                  NULL,
                                                   gicon);
-                    config_write_status(true, gname, gw ? gw->username : NULL);
+                    config_write_status(true, fg_name, gw ? gw->username : NULL);
                 }
             } else {
-                if (current_game) {
+                if (current_game && process_running(current_game)) {
+                    /* game still alive in background: keep presence and timer */
+                } else if (current_game) {
                     LOG_INFO("Game closed: %s", current_game);
                     free(current_game);
                     current_game = NULL;
+                    game_start_ms = 0;
+                    runtime_clear();
                     if (gw) gateway_send_presence(gw, NULL, 0,
                                                   g_config.application_id,
-                                                  g_config.status,
+                                                  NULL,
                                                   NULL);
                     config_write_status(true, NULL, gw ? gw->username : NULL);
                 }
@@ -192,8 +230,10 @@ reconnect:
                     const char *active_app_id = (gappid && gappid[0]) ? gappid : g_config.application_id;
                     if (gname) gateway_send_presence(gw, gname, game_start_ms,
                                                      active_app_id,
-                                                     g_config.status,
+                                                     NULL,
                                                      gicon);
+                } else {
+                    gateway_send_presence(gw, NULL, 0, g_config.application_id, NULL, NULL);
                 }
                 break;
             }

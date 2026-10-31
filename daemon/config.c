@@ -50,10 +50,6 @@ int config_load(void)
     if (cJSON_IsNumber(item))
         g_config.poll_interval = (int)item->valuedouble;
 
-    item = cJSON_GetObjectItemCaseSensitive(root, "status");
-    if (cJSON_IsString(item) && item->valuestring)
-        snprintf(g_config.status, sizeof(g_config.status), "%s", item->valuestring);
-
     item = cJSON_GetObjectItemCaseSensitive(root, "application_id");
     if (cJSON_IsString(item) && item->valuestring)
         snprintf(g_config.application_id, sizeof(g_config.application_id), "%s", item->valuestring);
@@ -349,4 +345,51 @@ void config_write_status(bool connected, const char *game, const char *discord_u
     }
     cJSON_Delete(root);
     fclose(f);
+}
+
+/* ── runtime save/load/clear ──────────────────────────────────────────── */
+
+int runtime_save(const char *package, long long start_ms)
+{
+    if (!package || !package[0]) return -1;
+    ensure_config_dir();
+    FILE *f = fopen(RUNTIME_FILE, "w");
+    if (!f) return -1;
+    fprintf(f, "{\"game\":\"%s\",\"start\":%lld}", package, start_ms);
+    fclose(f);
+    return 0;
+}
+
+int runtime_load(char *package, size_t pkg_len, long long *start_ms)
+{
+    if (!package || pkg_len == 0 || !start_ms) return -1;
+    package[0] = '\0';
+    *start_ms = 0;
+    FILE *f = fopen(RUNTIME_FILE, "r");
+    if (!f) return -1;
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    rewind(f);
+    if (sz <= 0) { fclose(f); return -1; }
+    char *buf = malloc(sz + 1);
+    if (!buf) { fclose(f); return -1; }
+    if (fread(buf, 1, sz, f) != (size_t)sz) { free(buf); fclose(f); return -1; }
+    buf[sz] = '\0';
+    fclose(f);
+    cJSON *root = cJSON_Parse(buf);
+    free(buf);
+    if (!root) return -1;
+    cJSON *g = cJSON_GetObjectItemCaseSensitive(root, "game");
+    cJSON *s = cJSON_GetObjectItemCaseSensitive(root, "start");
+    if (cJSON_IsString(g) && g->valuestring && cJSON_IsNumber(s)) {
+        snprintf(package, pkg_len, "%s", g->valuestring);
+        *start_ms = (long long)s->valuedouble;
+    }
+    cJSON_Delete(root);
+    return (package[0] && *start_ms > 0) ? 0 : -1;
+}
+
+void runtime_clear(void)
+{
+    remove(RUNTIME_FILE);
 }

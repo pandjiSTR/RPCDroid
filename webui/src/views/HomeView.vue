@@ -1,168 +1,175 @@
 <script setup>
-import { useStatusStore } from '../stores/status'
-import { startDaemon, stopDaemon, restartDaemon } from '../helpers/exec'
-import { ref } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useStatusStore } from '../stores/status'
+import { useGamesStore } from '../stores/games'
+import { useConfigStore } from '../stores/config'
+import { startDaemon, stopDaemon, restartDaemon } from '../helpers/exec'
+import Icon from '../components/Icon.vue'
+import GameIcon from '../components/GameIcon.vue'
 
 const statusStore = useStatusStore()
+const gamesStore = useGamesStore()
+const configStore = useConfigStore()
 const router = useRouter()
+
 const actionLoading = ref(false)
 const actionMsg = ref('')
 
-async function doStart() {
-  actionLoading.value = true
-  actionMsg.value = 'Starting...'
-  await startDaemon()
-  await new Promise(r => setTimeout(r, 2000))
-  await statusStore.refresh()
-  actionMsg.value = ''
-  actionLoading.value = false
-}
+onMounted(() => {
+  if (!gamesStore.loaded) gamesStore.load()
+  if (!configStore.loaded) configStore.load()
+})
 
-async function doStop() {
+async function run(msg, fn, wait) {
   actionLoading.value = true
-  actionMsg.value = 'Stopping...'
-  await stopDaemon()
-  await new Promise(r => setTimeout(r, 1000))
+  actionMsg.value = msg
+  await fn()
+  await new Promise(r => setTimeout(r, wait))
   await statusStore.refresh()
   actionMsg.value = ''
   actionLoading.value = false
 }
+const doStart = () => run('Starting…', startDaemon, 2000)
+const doStop = () => run('Stopping…', stopDaemon, 1000)
+const doRestart = () => run('Restarting…', restartDaemon, 2500)
 
-async function doRestart() {
-  actionLoading.value = true
-  actionMsg.value = 'Restarting...'
-  await restartDaemon()
-  await new Promise(r => setTimeout(r, 2500))
-  await statusStore.refresh()
-  actionMsg.value = ''
-  actionLoading.value = false
-}
+// Resolve the active game to a package so we can show its icon
+const nowPlaying = computed(() => {
+  const n = statusStore.currentGame
+  // status.json goes stale when the daemon dies, so only trust it while running
+  if (!n || !statusStore.isRunning) return null
+  const hit = Object.entries(gamesStore.games).find(([pkg, g]) => pkg === n || g.name === n)
+  return { name: hit?.[1]?.name || n, pkg: hit?.[0] || '', icon: hit?.[1]?.icon || '' }
+})
+
+const enabledCount = computed(() => Object.values(gamesStore.games).filter(g => g.enabled).length)
+const totalCount = computed(() => Object.keys(gamesStore.games).length)
+const presence = computed(() => configStore.status.charAt(0).toUpperCase() + configStore.status.slice(1))
 </script>
 
 <template>
   <div class="page">
-    <!-- Header -->
-    <div class="header">
-      <div class="header-icon">
-        <svg width="36" height="36" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <path d="M15 7.5V2H9v5.5l3 3 3-3zM7.5 9H2v6h5.5l3-3-3-3zM9 16.5V22h6v-5.5l-3-3-3 3zM16.5 9l-3 3 3 3H22V9h-5.5z"/>
-        </svg>
-      </div>
-      <div>
-        <h1>RPCDroid</h1>
-        <p class="version">Module v0.0.1</p>
-      </div>
+    <div v-if="!statusStore.hasToken" class="banner banner--warn tap" @click="router.push('/settings')">
+      <Icon name="alert" :size="16" />
+      <span>No Discord token configured. Tap to open Settings.</span>
     </div>
 
-    <!-- No token warning -->
-    <div v-if="!statusStore.hasToken" class="banner banner--warn" @click="router.push('/settings')">
-      <span class="banner-icon" aria-hidden="true">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
-      </span>
-      <span>No Discord token configured. Tap to go to Settings.</span>
-    </div>
-
-    <!-- Error banner -->
     <div v-if="statusStore.error" class="banner banner--error">
-      <span class="banner-icon" aria-hidden="true">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-      </span>
+      <Icon name="alert" :size="16" />
       <span>{{ statusStore.error }}</span>
     </div>
 
-    <!-- Status card -->
-    <div class="card">
-      <div class="status-row">
-        <div class="status-dot" :class="statusStore.isRunning ? 'dot--green' : 'dot--red'"></div>
-        <div>
-          <div class="status-label">{{ statusStore.isRunning ? 'Daemon Running' : 'Daemon Stopped' }}</div>
-          <div v-if="statusStore.discordUsername" class="status-sub">
-            Logged in as {{ statusStore.discordUsername }}
-          </div>
+    <!-- Hero -->
+    <section class="card hero" :class="{ 'hero--on': statusStore.isRunning }">
+      <div class="orb">
+        <span class="ring" />
+        <span class="core"><Icon name="power" :size="30" :stroke="2.2" /></span>
+      </div>
+      <div class="hero-text">
+        <h2>{{ statusStore.isRunning ? 'Rich Presence active' : 'Daemon is stopped' }}</h2>
+        <p class="muted">
+          <template v-if="statusStore.isRunning && statusStore.discordUsername">Signed in as {{ statusStore.discordUsername }}</template>
+          <template v-else-if="statusStore.isRunning">Waiting for Discord session…</template>
+          <template v-else>Start the daemon to show your game on Discord</template>
+        </p>
+      </div>
+
+      <div class="actions">
+        <button v-if="!statusStore.isRunning" class="btn btn--primary btn--block"
+                :disabled="actionLoading || !statusStore.hasToken" @click="doStart">
+          <Icon name="play" :size="16" /> Start daemon
+        </button>
+        <template v-else>
+          <button class="btn btn--danger" :disabled="actionLoading" @click="doStop">
+            <Icon name="stop" :size="16" /> Stop
+          </button>
+          <button class="btn btn--ghost" :disabled="actionLoading" @click="doRestart">
+            <Icon name="refresh" :size="16" /> Restart
+          </button>
+        </template>
+      </div>
+      <p v-if="actionMsg" class="hint"><span class="spinner sm" /> {{ actionMsg }}</p>
+      <p v-else-if="!statusStore.hasToken && !statusStore.isRunning" class="hint">Add your token in Settings first.</p>
+    </section>
+
+    <!-- Now playing -->
+    <section class="card now">
+      <template v-if="nowPlaying">
+        <GameIcon :pkg="nowPlaying.pkg" :icon="nowPlaying.icon" :name="nowPlaying.name" :size="54" />
+        <div class="now-info">
+          <span class="eyebrow">Now playing</span>
+          <strong>{{ nowPlaying.name }}</strong>
         </div>
-      </div>
+        <span class="live"><i />LIVE</span>
+      </template>
+      <template v-else>
+        <span class="idle-ico"><Icon name="gamepad" :size="22" /></span>
+        <div class="now-info">
+          <span class="eyebrow">Now playing</span>
+          <strong class="muted">{{ statusStore.isRunning ? 'No game detected' : 'Idle' }}</strong>
+        </div>
+      </template>
+    </section>
 
-      <!-- Current game -->
-      <div v-if="statusStore.currentGame" class="game-row">
-        <span class="game-badge">▶ Playing</span>
-        <span class="game-name">{{ statusStore.currentGame }}</span>
+    <!-- Stats -->
+    <section class="stats">
+      <div class="stat">
+        <Icon name="gamepad" :size="16" />
+        <strong>{{ enabledCount }}<small>/{{ totalCount }}</small></strong>
+        <span>Games on</span>
       </div>
-      <div v-else-if="statusStore.isRunning" class="no-game">
-        No game detected
+      <div class="stat">
+        <Icon name="clock" :size="16" />
+        <strong>{{ configStore.pollInterval }}<small>s</small></strong>
+        <span>Poll interval</span>
       </div>
-    </div>
-
-    <!-- Actions -->
-    <div class="card actions-card">
-      <p class="card-label">Daemon Control</p>
-      <div class="btn-row">
-        <button
-          v-if="!statusStore.isRunning"
-          class="btn btn--primary"
-          :disabled="actionLoading || !statusStore.hasToken"
-          @click="doStart"
-        >Start</button>
-        <button
-          v-if="statusStore.isRunning"
-          class="btn btn--danger"
-          :disabled="actionLoading"
-          @click="doStop"
-        >Stop</button>
-        <button
-          v-if="statusStore.isRunning"
-          class="btn btn--secondary"
-          :disabled="actionLoading"
-          @click="doRestart"
-        >Restart</button>
+      <div class="stat">
+        <Icon name="user" :size="16" />
+        <strong>{{ presence }}</strong>
+        <span>Presence</span>
       </div>
-      <p v-if="actionMsg" class="action-msg">{{ actionMsg }}</p>
-      <p v-if="!statusStore.hasToken && !statusStore.isRunning" class="hint">
-        Configure your token in Settings first.
-      </p>
-    </div>
+    </section>
   </div>
 </template>
 
 <style scoped>
-.page { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.tap { cursor: pointer; }
 
-.header { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
-.header-icon { font-size: 36px; }
-.header h1 { margin: 0; font-size: 20px; font-weight: 700; color: var(--text-primary); }
-.version { margin: 2px 0 0; font-size: 12px; color: var(--text-secondary); }
+.hero { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 14px; padding: 24px 18px 18px; }
+.hero--on { background: radial-gradient(120% 90% at 50% 0%, var(--accent-soft), transparent 65%), var(--surface); border-color: rgba(123, 131, 255, 0.3); }
+.hero-text h2 { font-size: 20px; font-weight: 750; letter-spacing: -0.01em; }
+.hero-text p { font-size: 13px; margin-top: 4px; }
 
-.banner {
-  display: flex; align-items: center; gap: 8px;
-  padding: 10px 14px; border-radius: 8px; font-size: 14px; cursor: pointer;
+.orb { position: relative; width: 96px; height: 96px; display: grid; place-items: center; }
+.core {
+  width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--muted);
+  transition: all 0.3s;
 }
-.banner--warn { background: rgba(254,231,92,0.15); color: var(--yellow); border: 1px solid rgba(254,231,92,0.3); }
-.banner--error { background: rgba(237,66,69,0.15); color: var(--red); border: 1px solid rgba(237,66,69,0.3); cursor: default; }
+.ring { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--accent); opacity: 0; }
+.hero--on .core { background: var(--grad); color: #fff; border-color: transparent; box-shadow: 0 0 44px -4px rgba(88, 101, 242, 0.75); }
+.hero--on .ring { animation: ping 2.2s cubic-bezier(0, 0, 0.2, 1) infinite; }
+@keyframes ping { 0% { transform: scale(0.75); opacity: 0.65; } 100% { transform: scale(1.3); opacity: 0; } }
 
-.card { background: var(--bg-card); border-radius: 8px; padding: 16px; }
+.actions { display: flex; gap: 10px; width: 100%; }
+.actions .btn { flex: 1; }
+.hint { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.spinner.sm { width: 14px; height: 14px; border-width: 2px; }
 
-.status-row { display: flex; align-items: center; gap: 12px; }
-.status-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
-.dot--green { background: var(--green); box-shadow: 0 0 6px var(--green); }
-.dot--red { background: var(--red); }
-.status-label { font-size: 16px; font-weight: 600; color: var(--text-primary); }
-.status-sub { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.now { display: flex; align-items: center; gap: 14px; padding: 14px; }
+.now-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.now-info strong { font-size: 16px; font-weight: 700; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.idle-ico { width: 54px; height: 54px; border-radius: 15px; display: grid; place-items: center; background: var(--surface-2); color: var(--muted); }
+.live { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; padding: 5px 10px; border-radius: 99px; background: var(--green-soft); color: var(--green); }
+.live i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: blink 1.4s ease-in-out infinite; }
+@keyframes blink { 50% { opacity: 0.25; } }
 
-.game-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
-.game-badge { background: var(--accent); color: white; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
-.game-name { font-size: 15px; color: var(--text-primary); font-weight: 500; }
-.no-game { margin-top: 10px; font-size: 13px; color: var(--text-secondary); }
-
-.actions-card .card-label { margin: 0 0 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary); font-weight: 600; }
-.btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
-
-.btn { padding: 10px 20px; border-radius: 6px; border: none; font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn--primary { background: var(--accent); color: white; }
-.btn--primary:not(:disabled):hover { background: var(--accent-hover); }
-.btn--danger { background: var(--red); color: white; }
-.btn--secondary { background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border); }
-
-.action-msg { margin: 10px 0 0; font-size: 13px; color: var(--text-secondary); }
-.hint { margin: 8px 0 0; font-size: 12px; color: var(--text-secondary); }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.stat { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 12px; display: flex; flex-direction: column; gap: 4px; }
+.stat svg { color: var(--accent); margin-bottom: 2px; }
+.stat strong { font-size: 18px; font-weight: 750; }
+.stat small { font-size: 12px; color: var(--muted); font-weight: 600; margin-left: 1px; }
+.stat span { font-size: 11px; color: var(--muted); }
 </style>

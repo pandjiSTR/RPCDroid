@@ -215,6 +215,7 @@ int gateway_send_presence(gateway_t *gw,
 {
     if (!gw) return -1;
 
+    (void)status;
     cJSON *root = cJSON_CreateObject();
     cJSON_AddNumberToObject(root, "op", 3);
 
@@ -259,7 +260,6 @@ int gateway_send_presence(gateway_t *gw,
     }
 
     cJSON_AddItemToObject(d, "activities", activities);
-    cJSON_AddStringToObject(d, "status", status ? status : "online");
     cJSON_AddFalseToObject(d, "afk");
 
     cJSON_AddItemToObject(root, "d", d);

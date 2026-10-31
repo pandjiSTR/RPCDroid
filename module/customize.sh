@@ -1,8 +1,6 @@
 #!/sbin/sh
 SKIPUNZIP=1
 
-ui_print "- RPCDroid"
-ui_print "- by My-RPC"
 ui_print " "
 
 # API check - require Android 10+
@@ -34,7 +32,6 @@ ui_print "- Extracting module files..."
 unzip -o "$ZIPFILE" \
     'module.prop' \
     'service.sh' \
-    'action.sh' \
     'uninstall.sh' \
     'gamelist.txt' \
     'META-INF/*' \
@@ -51,7 +48,6 @@ rm -rf "$MODPATH/libs"
 # Set permissions
 set_perm "$MODPATH/bin/rpcdroid" root root 0755
 set_perm "$MODPATH/service.sh" root root 0755
-set_perm "$MODPATH/action.sh" root root 0755
 set_perm "$MODPATH/uninstall.sh" root root 0755
 
 # Create config directory

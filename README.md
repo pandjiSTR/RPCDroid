@@ -2,7 +2,7 @@
 
 Root module for Magisk, KernelSU, and APatch that sends Android game activity to Discord Rich Presence.
 
-![Version](https://img.shields.io/badge/version-0.0.1-blue)
+![Version](https://img.shields.io/badge/version-0.0.2-blue)
 ![Android](https://img.shields.io/badge/Android-10%2B-3DDC84)
 ![Root](https://img.shields.io/badge/root-Magisk%20%7C%20KernelSU%20%7C%20APatch-lightgrey)
 ![Daemon](https://img.shields.io/badge/daemon-C%20(NDK)-informational)
@@ -51,7 +51,7 @@ Daemon resource usage is around 1–2 MB of RAM with near-zero CPU load while id
 - Only games listed in `gamelist.json` are reported to Discord.
 - Detection is polling-based, so status changes may be delayed by up to one interval (default 5 seconds).
 - Depends on the Discord Gateway, which is not documented for user accounts. Changes on Discord's side may affect the module at any time.
-- Current version (0.0.1) is early and has not been widely tested across devices.
+- Current version (0.0.2) is early and has not been widely tested across devices.
 
 ## Installation
 
@@ -63,7 +63,7 @@ Daemon resource usage is around 1–2 MB of RAM with near-zero CPU load while id
 
 ### Steps
 
-1. Download `rpcdroid-v0.0.1.zip` from the releases page.
+1. Download `rpcdroid-v0.0.2.zip` from the releases page.
 2. In the root manager app, open **Modules**, choose **Install from storage**, then select the zip file.
 3. Reboot the device after installation completes.
 4. Open the module WebUI (WebUI button in KernelSU/APatch, or Action button in Magisk).
@@ -160,7 +160,7 @@ Conversion on the second path is required because Discord rejects raw `https://`
 RPCDroid/
 ├── build.sh                       # Main builder for the whole module
 ├── README.md
-├── rpcdroid-v0.0.1.zip            # Ready-to-flash module package
+├── rpcdroid-v0.0.2.zip            # Ready-to-flash module package
 ├── .gitignore
 │
 ├── daemon/                        # Daemon source (C, NDK)
@@ -201,7 +201,6 @@ RPCDroid/
     ├── module.prop                # Module metadata
     ├── customize.sh               # Installation and migration on flash
     ├── service.sh                 # Starts the daemon on boot
-    ├── action.sh                  # Action button handler
     ├── uninstall.sh               # Cleanup on module removal
     ├── gamelist.txt               # 470+ popular game packages
     ├── libs/                      # Compiled binaries
@@ -293,14 +292,14 @@ cd ..
 python3 - <<'EOF'
 import os, zipfile
 
-with zipfile.ZipFile("rpcdroid-v0.0.1.zip", "w", zipfile.ZIP_DEFLATED) as zf:
+with zipfile.ZipFile("rpcdroid-v0.0.2.zip", "w", zipfile.ZIP_DEFLATED) as zf:
     for root, _, files in os.walk("module"):
         for name in files:
             path = os.path.join(root, name)
             arcname = os.path.relpath(path, "module").replace(os.sep, "/")
             zf.write(path, arcname)
 
-print("Done: rpcdroid-v0.0.1.zip")
+print("Done: rpcdroid-v0.0.2.zip")
 EOF
 ```
 

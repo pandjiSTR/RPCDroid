@@ -3,12 +3,17 @@ import { ref, computed, onMounted } from 'vue'
 import { useGamesStore } from '../stores/games'
 import { getInstalledApps, fetchPlayStoreMetadata, getIconDisplayUrl } from '../helpers/apps'
 import ToggleSwitch from '../components/ToggleSwitch.vue'
+import Icon from '../components/Icon.vue'
+import GameIcon from '../components/GameIcon.vue'
 
 const store = useGamesStore()
 
 const search = ref('')
 const editingPkg = ref(null)
 const editingName = ref('')
+const confirmPkg = ref(null)
+let confirmTimer = null
+
 const showAddForm = ref(false)
 const newPkg = ref('')
 const newName = ref('')
@@ -23,16 +28,14 @@ const appSearch = ref('')
 const isManualInput = ref(false)
 const selectedApp = ref(null)
 
-onMounted(() => {
-  if (!store.loaded) store.load()
-})
+const vFocus = { mounted: el => el.focus() }
+
+onMounted(() => { if (!store.loaded) store.load() })
 
 const filteredGames = computed(() => {
   const q = search.value.toLowerCase()
   return Object.entries(store.games)
-    .filter(([pkg, g]) =>
-      !q || g.name.toLowerCase().includes(q) || pkg.toLowerCase().includes(q)
-    )
+    .filter(([pkg, g]) => !q || g.name.toLowerCase().includes(q) || pkg.toLowerCase().includes(q))
     .sort((a, b) => a[1].name.localeCompare(b[1].name))
 })
 
@@ -44,24 +47,21 @@ const filteredInstalledApps = computed(() => {
   )
 })
 
+
+
 async function openAddModal() {
   showAddForm.value = true
-  addError.value = ''
-  selectedApp.value = null
-  isManualInput.value = false
+  resetSelection()
   appSearch.value = ''
-  newPkg.value = ''
-  newName.value = ''
-  newIcon.value = ''
-  newAppId.value = ''
   if (installedApps.value.length === 0) {
     loadingApps.value = true
-    try {
-      installedApps.value = await getInstalledApps()
-    } finally {
-      loadingApps.value = false
-    }
+    try { installedApps.value = await getInstalledApps() } finally { loadingApps.value = false }
   }
+}
+
+function closeSheet() {
+  showAddForm.value = false
+  resetSelection()
 }
 
 async function selectInstalledApp(app) {
@@ -91,9 +91,7 @@ async function manualFetchIcon() {
   try {
     const meta = await fetchPlayStoreMetadata(pkg)
     if (meta) {
-      if (meta.title && (!newName.value || newName.value === pkg.split('.').pop())) {
-        newName.value = meta.title
-      }
+      if (meta.title && (!newName.value || newName.value === pkg.split('.').pop())) newName.value = meta.title
       if (meta.icon) newIcon.value = meta.icon
       if (meta.appId) newAppId.value = meta.appId
     }
@@ -118,14 +116,13 @@ function startEdit(pkg, name) {
 }
 
 async function commitEdit(pkg) {
+  if (editingPkg.value !== pkg) return // Enter + blur both fire; only commit once
+  editingPkg.value = null
   const name = editingName.value.trim()
   if (name) await store.updateName(pkg, name)
-  editingPkg.value = null
 }
 
-function cancelEdit() {
-  editingPkg.value = null
-}
+function cancelEdit() { editingPkg.value = null }
 
 async function doAddGame() {
   const pkg = newPkg.value.trim()
@@ -136,12 +133,20 @@ async function doAddGame() {
   if (!/^[a-zA-Z][a-zA-Z0-9_.]*$/.test(pkg)) { addError.value = 'Invalid package name format.'; return }
   if (store.games[pkg]) { addError.value = 'Package already exists in game list.'; return }
   await store.addGame(pkg, name || pkg.split('.').pop(), icon, newAppId.value)
-  showAddForm.value = false
-  resetSelection()
+  closeSheet()
 }
 
-async function doRemove(pkg) {
-  await store.removeGame(pkg)
+// Two-tap delete: first tap arms the button, second tap removes
+async function askRemove(pkg) {
+  if (confirmPkg.value === pkg) {
+    clearTimeout(confirmTimer)
+    confirmPkg.value = null
+    await store.removeGame(pkg)
+    return
+  }
+  confirmPkg.value = pkg
+  clearTimeout(confirmTimer)
+  confirmTimer = setTimeout(() => { confirmPkg.value = null }, 3000)
 }
 
 async function fetchGameIcon(pkg) {
@@ -158,443 +163,222 @@ async function fetchGameIcon(pkg) {
     }
   }
 }
-
-function iconError(e) {
-  e.target.style.display = 'none'
-  if (e.target.nextElementSibling) {
-    e.target.nextElementSibling.style.display = 'flex'
-  }
-}
-
-function pickerIconError(e) {
-  e.target.style.display = 'none'
-  if (e.target.nextElementSibling) {
-    e.target.nextElementSibling.style.display = 'flex'
-  }
-}
 </script>
 
 <template>
   <div class="page">
-    <div class="page-header">
-      <h2>Game List</h2>
-      <span class="game-count">{{ Object.keys(store.games).length }} games</span>
-    </div>
-
-    <!-- Search -->
-    <div class="search-wrap">
-      <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
-      </svg>
-      <input
-        v-model="search"
-        class="search-input"
-        type="text"
-        placeholder="Search by name or package…"
-      />
-    </div>
-
-    <!-- Loading -->
-    <div v-if="store.loading" class="empty-state">
-      <span class="spinner" aria-hidden="true"></span>
-      <p>Loading games…</p>
-    </div>
-
-    <!-- Empty -->
-    <div v-else-if="filteredGames.length === 0 && !store.loading" class="empty-state">
-      <span style="font-size:40px" class="empty-icon" aria-hidden="true">
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M15 7.5V2H9v5.5l3 3 3-3zM7.5 9H2v6h5.5l3-3-3-3zM9 16.5V22h6v-5.5l-3-3-3 3zM16.5 9l-3 3 3 3H22V9h-5.5z"/></svg>
-      </span>
-      <p>{{ search ? 'No games match your search.' : 'No games configured yet.' }}</p>
-    </div>
-
-    <!-- Game list -->
-    <div v-else class="game-list">
-      <div v-for="[pkg, game] in filteredGames" :key="pkg" class="game-item">
-        <div class="game-icon-wrap">
-          <img
-            :src="getIconDisplayUrl(game.icon) || `ksu://icon/${pkg}`"
-            :alt="game.name"
-            class="game-icon"
-            @error="iconError"
-          />
-          <span class="game-icon-fallback" aria-hidden="true">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M15 7.5V2H9v5.5l3 3 3-3zM7.5 9H2v6h5.5l3-3-3-3zM9 16.5V22h6v-5.5l-3-3-3 3zM16.5 9l-3 3 3 3H22V9h-5.5z"/></svg>
-      </span>
-        </div>
-        <div class="game-info">
-          <!-- Inline name editor -->
-          <div v-if="editingPkg === pkg" class="name-edit-row">
-            <input
-              v-model="editingName"
-              class="name-input"
-              type="text"
-              @keyup.enter="commitEdit(pkg)"
-              @keyup.escape="cancelEdit"
-              @blur="commitEdit(pkg)"
-              autofocus
-            />
-          </div>
-          <div v-else class="game-name-row">
-            <span class="game-name" @click="startEdit(pkg, game.name)">{{ game.name }}</span>
-            <button class="edit-btn" @click="startEdit(pkg, game.name)" title="Rename">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
-              </svg>
-            </button>
-            <span v-if="game.icon || game.app_id" class="badge-icon" title="Discord Icon Linked" aria-hidden="true">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
-            </span>
-            <button v-else class="btn-fetch-icon" @click="fetchGameIcon(pkg)" title="Fetch icon from Play Store">
-              + Icon
-            </button>
-          </div>
-          <span class="game-pkg">{{ pkg }}</span>
-        </div>
-        <div class="game-actions">
-          <ToggleSwitch
-            :model-value="game.enabled"
-            @update:model-value="store.toggleGame(pkg)"
-          />
-          <button class="remove-btn" @click="doRemove(pkg)" title="Remove">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
-            </svg>
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Add game form / modal -->
-    <div v-if="showAddForm" class="card add-form">
-      <div class="add-form-header">
-        <p class="section-label">Add Game</p>
-        <button class="close-btn" @click="showAddForm = false; resetSelection()" aria-label="Close" title="Close">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-        </svg>
-      </button>
+    <div class="toolbar">
+      <div class="search">
+        <Icon name="search" :size="17" />
+        <input v-model="search" type="text" placeholder="Search name or package…" />
+        <button v-if="search" class="icon-btn clear" aria-label="Clear" @click="search = ''"><Icon name="x" :size="15" /></button>
       </div>
 
-      <!-- Mode 1: Searchable App Picker -->
-      <div v-if="!selectedApp && !isManualInput" class="app-picker-section">
-        <label class="field-label">Select Installed App</label>
-        <div class="search-wrap" style="margin-bottom: 8px;">
-          <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
-          </svg>
+    </div>
+
+    <div v-if="store.loading" class="empty"><span class="spinner" /><p>Loading games…</p></div>
+
+    <div v-else-if="filteredGames.length === 0" class="empty">
+      <span class="empty-ico"><Icon name="gamepad" :size="28" /></span>
+      <p>{{ search ? 'No games match your search.' : 'No games here yet.' }}</p>
+    </div>
+
+    <div v-else class="list">
+      <article v-for="[pkg, game] in filteredGames" :key="pkg" class="game" :class="{ off: !game.enabled }">
+        <GameIcon :pkg="pkg" :icon="game.icon" :name="game.name" :size="46" />
+
+        <div class="main">
           <input
-            v-model="appSearch"
-            class="search-input"
-            type="text"
-            placeholder="Search installed apps..."
+            v-if="editingPkg === pkg" v-model="editingName" v-focus class="input rename" type="text"
+            @keyup.enter="commitEdit(pkg)" @keyup.escape="cancelEdit" @blur="commitEdit(pkg)"
           />
+          <button v-else class="name" @click="startEdit(pkg, game.name)" title="Tap to rename">
+            <span>{{ game.name }}</span><Icon name="pencil" :size="12" />
+          </button>
+          <span class="pkg">{{ pkg }}</span>
+          <span v-if="game.icon || game.app_id" class="tag tag--ok"><Icon name="image" :size="11" /> Icon linked</span>
+          <button v-else class="tag tag--action" @click="fetchGameIcon(pkg)"><Icon name="plus" :size="11" :stroke="2.4" /> Fetch icon</button>
         </div>
 
-        <div v-if="loadingApps" class="picker-loading">
-          <span>Scanning installed apps…</span>
-        </div>
-
-        <div v-else-if="filteredInstalledApps.length === 0" class="picker-empty">
-          <p>No non-system apps found.</p>
-        </div>
-
-        <div v-else class="app-picker-list">
-          <div
-            v-for="app in filteredInstalledApps"
-            :key="app.packageName"
-            class="app-picker-item"
-            :class="{ 'app-picker-item--exists': store.games[app.packageName] }"
-            @click="selectInstalledApp(app)"
-          >
-            <div class="picker-icon-wrap">
-              <img
-                :src="`ksu://icon/${app.packageName}`"
-                :alt="app.appLabel"
-                class="picker-icon"
-                @error="pickerIconError"
-              />
-              <span class="picker-icon-fallback" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"/></svg>
-            </span>
-            </div>
-            <div class="picker-info">
-              <span class="picker-label">{{ app.appLabel }}</span>
-              <span class="picker-pkg">{{ app.packageName }}</span>
-            </div>
-            <span v-if="store.games[app.packageName]" class="picker-added-badge">Added</span>
-          </div>
-        </div>
-
-        <button class="manual-toggle-btn" @click="isManualInput = true">
-          Enter package name manually instead
-        </button>
-      </div>
-
-      <!-- Mode 2: App Selected or Manual Entry Configuration -->
-      <div v-else class="selected-app-section">
-        <div v-if="selectedApp" class="selected-banner">
-          <div class="picker-icon-wrap">
-            <img
-              :src="getIconDisplayUrl(newIcon) || `ksu://icon/${newPkg}`"
-              :alt="newName"
-              class="picker-icon"
-              @error="pickerIconError"
-            />
-            <span class="picker-icon-fallback" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"/></svg>
-            </span>
-          </div>
-          <div class="selected-details">
-            <span class="selected-name">{{ newName }}</span>
-            <span class="selected-pkg">{{ newPkg }}</span>
-          </div>
-          <button class="change-app-btn" @click="resetSelection">Change</button>
-        </div>
-
-        <div v-if="isManualInput" class="manual-fields">
-          <label class="field-label">Package Name</label>
-          <div class="pkg-input-row">
-            <input
-              v-model="newPkg"
-              class="text-input"
-              type="text"
-              placeholder="com.example.game"
-              @blur="manualFetchIcon"
-            />
-            <button class="btn btn--small" @click="manualFetchIcon" :disabled="fetchingIcon">
-              Fetch Icon
-            </button>
-          </div>
-        </div>
-
-        <label class="field-label" style="margin-top: 10px;">Display Name</label>
-        <input
-          v-model="newName"
-          class="text-input"
-          type="text"
-          placeholder="Display Name in Discord"
-          @keyup.enter="doAddGame"
-        />
-
-        <label class="field-label" style="margin-top: 10px;">
-          Discord Icon URL
-          <span v-if="fetchingIcon" class="fetching-label">Resolving Google Play icon…</span>
-        </label>
-        <input
-          v-model="newIcon"
-          class="text-input"
-          type="text"
-          placeholder="https://play-lh.googleusercontent.com/... (optional)"
-          @keyup.enter="doAddGame"
-        />
-
-        <div v-if="newIcon" class="icon-preview-row">
-          <img :src="getIconDisplayUrl(newIcon)" class="icon-preview" alt="Icon Preview" />
-          <span class="icon-preview-hint">Icon preview from Discord CDN / Google Play</span>
-        </div>
-
-        <p v-if="addError" class="add-error">{{ addError }}</p>
-
-        <div class="add-btn-row">
-          <button class="btn btn--primary" @click="doAddGame">Add Game</button>
-          <button class="btn btn--secondary" @click="resetSelection">
-            {{ isManualInput ? 'Back to App List' : 'Cancel' }}
+        <div class="side">
+          <ToggleSwitch :model-value="game.enabled" @update:model-value="store.toggleGame(pkg)" />
+          <button class="icon-btn" :class="{ 'icon-btn--danger': confirmPkg === pkg }"
+                  :title="confirmPkg === pkg ? 'Tap again to remove' : 'Remove'" @click="askRemove(pkg)">
+            <Icon name="trash" :size="16" />
           </button>
         </div>
-      </div>
+      </article>
     </div>
 
-    <!-- Floating Action Button -->
     <button v-if="!showAddForm" class="fab" @click="openAddModal">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
-      </svg>
-      Add Game
+      <Icon name="plus" :size="20" :stroke="2.4" /> Add game
     </button>
+
+    <!-- Add game bottom sheet -->
+    <Transition name="sheet">
+      <div v-if="showAddForm" class="sheet-root">
+        <div class="backdrop" @click="closeSheet" />
+        <div class="sheet" role="dialog" aria-modal="true" aria-label="Add game">
+          <div class="grab" />
+          <div class="row sheet-head">
+            <h3>Add game</h3>
+            <button class="icon-btn" aria-label="Close" @click="closeSheet"><Icon name="x" :size="20" /></button>
+          </div>
+
+          <!-- Step 1: pick an installed app -->
+          <div v-if="!selectedApp && !isManualInput" class="stack">
+            <div class="search">
+              <Icon name="search" :size="16" />
+              <input v-model="appSearch" type="text" placeholder="Search installed apps…" />
+            </div>
+
+            <div v-if="loadingApps" class="empty sm"><span class="spinner" /><p>Scanning installed apps…</p></div>
+            <div v-else-if="filteredInstalledApps.length === 0" class="empty sm"><p>No non-system apps found.</p></div>
+            <div v-else class="picker">
+              <button v-for="app in filteredInstalledApps" :key="app.packageName" class="pick"
+                      :class="{ exists: store.games[app.packageName] }" @click="selectInstalledApp(app)">
+                <GameIcon :pkg="app.packageName" :name="app.appLabel" :size="38" />
+                <span class="pick-info"><b>{{ app.appLabel }}</b><small>{{ app.packageName }}</small></span>
+                <span v-if="store.games[app.packageName]" class="tag">Added</span>
+                <Icon v-else name="chevron" :size="16" />
+              </button>
+            </div>
+
+            <button class="link" @click="isManualInput = true">Enter package name manually</button>
+          </div>
+
+          <!-- Step 2: details -->
+          <div v-else class="stack">
+            <div v-if="selectedApp" class="chosen">
+              <GameIcon :pkg="newPkg" :icon="newIcon" :name="newName" :size="42" />
+              <span class="pick-info"><b>{{ newName }}</b><small>{{ newPkg }}</small></span>
+              <button class="btn btn--ghost btn--sm" @click="resetSelection">Change</button>
+            </div>
+
+            <div v-if="isManualInput" class="field">
+              <label class="field-label">Package name</label>
+              <div class="row">
+                <input v-model="newPkg" class="input" type="text" placeholder="com.example.game" @blur="manualFetchIcon" />
+                <button class="btn btn--ghost btn--sm" :disabled="fetchingIcon" @click="manualFetchIcon">Fetch</button>
+              </div>
+            </div>
+
+            <div class="field">
+              <label class="field-label">Display name</label>
+              <input v-model="newName" class="input" type="text" placeholder="Name shown in Discord" @keyup.enter="doAddGame" />
+            </div>
+
+            <div class="field">
+              <label class="field-label">
+                Icon URL <span v-if="fetchingIcon" class="fetching">Resolving Play Store icon…</span>
+              </label>
+              <input v-model="newIcon" class="input" type="text" placeholder="https://play-lh.googleusercontent.com/… (optional)" @keyup.enter="doAddGame" />
+              <div v-if="newIcon" class="preview">
+                <img :src="getIconDisplayUrl(newIcon)" alt="Icon preview" />
+                <span>Preview from Discord CDN / Google Play</span>
+              </div>
+            </div>
+
+            <p v-if="addError" class="error">{{ addError }}</p>
+
+            <div class="row">
+              <button class="btn btn--ghost" @click="resetSelection">{{ isManualInput ? 'Back' : 'Cancel' }}</button>
+              <button class="btn btn--primary grow" @click="doAddGame">Add game</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
 <style scoped>
-.page { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
-
-.page-header { display: flex; align-items: center; justify-content: space-between; }
-.page-header h2 { margin: 0; font-size: 20px; font-weight: 700; color: var(--text-primary); }
-.game-count { font-size: 12px; color: var(--text-secondary); background: var(--bg-card); padding: 3px 10px; border-radius: 12px; }
-
-.search-wrap {
-  display: flex; align-items: center; gap: 8px;
-  background: var(--bg-card); border-radius: 8px; padding: 0 12px;
-  border: 1px solid var(--border);
-}
-.search-icon { color: var(--text-secondary); flex-shrink: 0; }
-.search-input {
-  flex: 1; background: transparent; border: none; outline: none;
-  color: var(--text-primary); font-size: 14px; padding: 10px 0;
-}
-.search-input::placeholder { color: var(--text-secondary); }
-
-.empty-state {
-  display: flex; flex-direction: column; align-items: center;
-  gap: 8px; padding: 48px 16px; color: var(--text-secondary); font-size: 14px;
+.toolbar {
+  display: flex; flex-direction: column; gap: 10px;
+  position: sticky; z-index: 40; top: calc(env(safe-area-inset-top, 0px) + 60px);
+  padding-bottom: 8px; background: linear-gradient(var(--bg) 80%, transparent);
 }
 
-.game-list { display: flex; flex-direction: column; gap: 2px; }
+.search {
+  display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px; color: var(--muted);
+}
+.search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.search input { flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; color: var(--text); font-size: 14px; }
+.search input::placeholder { color: var(--muted); }
+.clear { width: 28px; height: 28px; }
 
-.game-item {
-  display: flex; align-items: center; gap: 12px;
-  background: var(--bg-card); border-radius: 8px; padding: 12px;
+.list { display: flex; flex-direction: column; gap: 10px; }
+.game {
+  display: flex; align-items: center; gap: 12px; padding: 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 18px;
+  content-visibility: auto; contain-intrinsic-size: auto 92px;
+  transition: opacity 0.2s;
 }
+.game.off { opacity: 0.55; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.name {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 0; border: 0; background: none;
+  color: var(--text); font-size: 15px; font-weight: 650; cursor: pointer; text-align: left;
+}
+.name span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.25; }
+.name svg { color: var(--muted); opacity: 0.6; flex-shrink: 0; }
+.rename { height: 34px; font-size: 14px; border-color: var(--accent); }
+.pkg { max-width: 100%; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side { display: flex; flex-direction: column; align-items: center; gap: 6px; flex-shrink: 0; }
 
-.game-icon-wrap { position: relative; width: 40px; height: 40px; flex-shrink: 0; }
-.game-icon {
-  width: 40px; height: 40px; border-radius: 8px; object-fit: cover;
-  display: block;
+.tag {
+  display: inline-flex; align-items: center; gap: 4px; margin-top: 3px; height: 22px; padding: 0 8px;
+  border: 0; border-radius: 99px; font-size: 10.5px; font-weight: 700; background: var(--surface-2); color: var(--muted);
 }
-.game-icon-fallback {
-  display: none; position: absolute; inset: 0;
-  align-items: center; justify-content: center;
-  font-size: 22px; background: var(--bg-input); border-radius: 8px;
-}
+.tag--ok { background: var(--green-soft); color: var(--green); }
+.tag--action { background: var(--accent-soft); color: var(--accent); cursor: pointer; }
 
-.game-info { flex: 1; min-width: 0; }
-.game-name-row { display: flex; align-items: center; gap: 6px; }
-.game-name {
-  font-size: 15px; font-weight: 500; color: var(--text-primary);
-  cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.game-name:hover { color: var(--accent); }
-.edit-btn {
-  background: none; border: none; color: var(--text-secondary);
-  cursor: pointer; padding: 2px; display: flex; align-items: center;
-  opacity: 0.5; flex-shrink: 0;
-}
-.edit-btn:hover { opacity: 1; color: var(--accent); }
-.badge-icon { font-size: 12px; }
-.btn-fetch-icon {
-  background: var(--bg-input); border: 1px solid var(--border);
-  color: var(--text-secondary); font-size: 10px; padding: 2px 6px;
-  border-radius: 4px; cursor: pointer;
-}
-.btn-fetch-icon:hover { color: var(--accent); border-color: var(--accent); }
-.game-pkg {
-  display: block; font-size: 11px; color: var(--text-secondary);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px;
-}
-
-.name-edit-row { display: flex; }
-.name-input {
-  width: 100%; background: var(--bg-input); border: 1px solid var(--accent);
-  border-radius: 4px; color: var(--text-primary); font-size: 14px;
-  padding: 4px 8px; outline: none;
-}
-
-.game-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.remove-btn {
-  background: none; border: none; color: var(--text-secondary);
-  cursor: pointer; padding: 4px; display: flex; align-items: center;
-  border-radius: 4px;
-}
-.remove-btn:hover { color: var(--red); background: rgba(237,66,69,0.1); }
-
-.card { background: var(--bg-card); border-radius: 8px; padding: 16px; border: 1px solid var(--border); }
-.add-form { display: flex; flex-direction: column; }
-.add-form-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-.section-label { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary); font-weight: 600; }
-.close-btn { background: none; border: none; color: var(--text-secondary); font-size: 16px; cursor: pointer; }
-.close-btn:hover { color: var(--text-primary); }
-
-.field-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; font-weight: 500; display: flex; justify-content: space-between; }
-.fetching-label { font-size: 11px; color: var(--accent); font-weight: normal; }
-
-.text-input {
-  width: 100%; background: var(--bg-input); border: 1px solid var(--border);
-  border-radius: 6px; color: var(--text-primary); font-size: 14px;
-  padding: 10px 12px; outline: none;
-}
-.text-input:focus { border-color: var(--accent); }
-
-.pkg-input-row { display: flex; gap: 8px; }
-
-/* App Picker */
-.app-picker-section { display: flex; flex-direction: column; }
-.picker-loading, .picker-empty {
-  padding: 24px; text-align: center; color: var(--text-secondary); font-size: 13px;
-}
-.app-picker-list {
-  max-height: 240px; overflow-y: auto; border: 1px solid var(--border);
-  border-radius: 6px; background: var(--bg-input); display: flex; flex-direction: column;
-}
-.app-picker-item {
-  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
-  cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.05);
-  transition: background 0.15s;
-}
-.app-picker-item:last-child { border-bottom: none; }
-.app-picker-item:hover { background: rgba(88, 101, 242, 0.12); }
-.app-picker-item--exists { opacity: 0.6; }
-.picker-icon-wrap { position: relative; width: 32px; height: 32px; flex-shrink: 0; }
-.picker-icon { width: 32px; height: 32px; border-radius: 6px; object-fit: cover; display: block; }
-.picker-icon-fallback {
-  display: none; position: absolute; inset: 0; align-items: center; justify-content: center;
-  font-size: 18px; background: var(--bg-card); border-radius: 6px;
-}
-.picker-info { flex: 1; min-width: 0; }
-.picker-label { font-size: 13px; font-weight: 500; color: var(--text-primary); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.picker-pkg { font-size: 11px; color: var(--text-secondary); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.picker-added-badge { font-size: 10px; background: rgba(255,255,255,0.1); color: var(--text-secondary); padding: 2px 6px; border-radius: 4px; }
-
-.manual-toggle-btn {
-  margin-top: 10px; background: none; border: none; color: var(--accent);
-  font-size: 12px; cursor: pointer; text-align: left; padding: 4px 0;
-}
-.manual-toggle-btn:hover { text-decoration: underline; }
-
-/* Selected App Banner */
-.selected-app-section { display: flex; flex-direction: column; }
-.selected-banner {
-  display: flex; align-items: center; gap: 12px; background: var(--bg-input);
-  padding: 10px; border-radius: 6px; border: 1px solid var(--border); margin-bottom: 12px;
-}
-.selected-details { flex: 1; min-width: 0; }
-.selected-name { font-size: 14px; font-weight: 600; color: var(--text-primary); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.selected-pkg { font-size: 11px; color: var(--text-secondary); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.change-app-btn {
-  background: var(--bg-card); border: 1px solid var(--border); color: var(--text-secondary);
-  font-size: 12px; padding: 4px 10px; border-radius: 4px; cursor: pointer;
-}
-.change-app-btn:hover { color: var(--text-primary); border-color: var(--accent); }
-
-.icon-preview-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-.icon-preview { width: 36px; height: 36px; border-radius: 6px; object-fit: cover; border: 1px solid var(--border); }
-.icon-preview-hint { font-size: 11px; color: var(--text-secondary); }
-
-.add-error { margin: 8px 0 0; font-size: 12px; color: var(--red); }
-.add-btn-row { display: flex; gap: 8px; margin-top: 14px; }
-
-.btn { padding: 10px 20px; border-radius: 6px; border: none; font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }
-.btn--primary { background: var(--accent); color: white; }
-.btn--primary:hover { background: var(--accent-hover); }
-.btn--secondary { background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border); }
-.btn--small { padding: 8px 14px; font-size: 12px; background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border); white-space: nowrap; }
-.btn--small:hover { border-color: var(--accent); }
+.empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 56px 16px; color: var(--muted); font-size: 14px; }
+.empty.sm { padding: 28px 16px; }
+.empty-ico { width: 60px; height: 60px; border-radius: 20px; display: grid; place-items: center; background: var(--surface-2); }
 
 .fab {
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  background: var(--accent); color: white; border: none; border-radius: 8px;
-  padding: 12px 20px; font-size: 14px; font-weight: 600; cursor: pointer;
-  transition: background 0.15s;
+  position: fixed; z-index: 90; right: 16px; bottom: calc(92px + env(safe-area-inset-bottom, 0px));
+  height: 50px; padding: 0 20px 0 16px; border: 0; border-radius: 99px;
+  display: flex; align-items: center; gap: 8px; color: #fff; font-size: 14px; font-weight: 700; cursor: pointer;
+  background: var(--grad); box-shadow: 0 14px 30px -10px rgba(88, 101, 242, 0.95);
+  transition: transform 0.12s;
 }
-.fab:hover { background: var(--accent-hover); }
+.fab:active { transform: scale(0.95); }
 
-/* Loading spinner (no emoji) */
-.spinner {
-  width: 24px; height: 24px;
-  border: 3px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  display: inline-block;
-  animation: spin 0.8s linear infinite;
+/* Bottom sheet */
+.sheet-root { position: fixed; inset: 0; z-index: 200; display: flex; align-items: flex-end; }
+.backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.6); }
+.sheet {
+  position: relative; width: 100%; max-height: 88vh; overflow-y: auto;
+  padding: 10px 18px calc(20px + env(safe-area-inset-bottom, 0px));
+  background: var(--bg-2); border: 1px solid var(--border-strong); border-bottom: 0;
+  border-radius: 26px 26px 0 0; display: flex; flex-direction: column; gap: 14px;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
+.grab { width: 38px; height: 4px; border-radius: 4px; background: var(--border-strong); margin: 0 auto; }
+.sheet-head h3 { font-size: 17px; font-weight: 750; }
+.sheet-enter-active, .sheet-leave-active { transition: opacity 0.28s ease; }
+.sheet-enter-active .sheet, .sheet-leave-active .sheet { transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.sheet-enter-from, .sheet-leave-to { opacity: 0; }
+.sheet-enter-from .sheet, .sheet-leave-to .sheet { transform: translateY(100%); }
+
+.picker { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; margin: 0 -6px; padding: 0 6px; }
+.pick {
+  display: flex; align-items: center; gap: 12px; padding: 8px; border: 0; border-radius: 14px;
+  background: transparent; color: var(--muted); text-align: left; cursor: pointer;
+}
+.pick:active { background: var(--accent-soft); }
+.pick.exists { opacity: 0.5; }
+.pick-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pick-info b { font-size: 14px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick-info small { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link { align-self: flex-start; padding: 4px 0; border: 0; background: none; color: var(--accent); font-size: 13px; font-weight: 600; cursor: pointer; }
+
+.chosen { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 16px; background: var(--surface-2); border: 1px solid var(--border); }
+.fetching { color: var(--accent); font-weight: 500; }
+.preview { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--muted); }
+.preview img { width: 38px; height: 38px; border-radius: 10px; object-fit: cover; border: 1px solid var(--border); }
+.error { font-size: 12px; color: var(--red); }
+.grow { flex: 1; }
 </style>
