@@ -34,6 +34,7 @@ unzip -o "$ZIPFILE" \
     'service.sh' \
     'uninstall.sh' \
     'gamelist.txt' \
+    'binder_resolver.apk' \
     'META-INF/*' \
     'webroot/*' \
     -d "$MODPATH" >/dev/null 2>&1
@@ -56,7 +57,7 @@ mkdir -p /data/adb/.config/drpc
 
 # Write default config if not exists (preserve existing config on update)
 if [ ! -f /data/adb/.config/drpc/config.json ]; then
-    echo '{"poll_interval":5,"status":"online","application_id":"962990036020756480","log_level":1}' \
+    echo '{"poll_interval":3,"application_id":"962990036020756480","log_level":1}' \
         > /data/adb/.config/drpc/config.json
     ui_print "- Default config written"
 else

@@ -2,6 +2,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define CONFIG_DIR      "/data/adb/.config/drpc"
 #define TOKEN_FILE      CONFIG_DIR "/token"
 #define CONFIG_FILE     CONFIG_DIR "/config.json"
@@ -13,7 +17,6 @@
 
 typedef struct {
     int  poll_interval;       /* seconds between foreground app checks, default 5 */
-    char status[16];          /* "online", "idle", "dnd", default "online" */
     char application_id[32]; /* Discord application ID */
     int  log_level;           /* 0=debug 1=info 2=warn 3=error */
 } Config;
@@ -38,9 +41,13 @@ void        gamelist_free(void);
 const char *gamelist_get_name(const char *package);   /* NULL if not found/disabled */
 const char *gamelist_get_icon(const char *package);   /* NULL if not found/no icon */
 const char *gamelist_get_app_id(const char *package); /* NULL if not found/no custom app_id */
-void        config_write_status(bool connected, const char *game, const char *discord_username);
+void        config_write_status(bool connected, const char *game, const char *discord_username, const char *discord_avatar);
 int         runtime_save(const char *package, long long start_ms);
 int         runtime_load(char *package, size_t pkg_len, long long *start_ms);
 void        runtime_clear(void);
 const char *icon_cache_get(const char *package);   /* NULL if not cached */
 void        icon_cache_set(const char *package, const char *mp_url);
+
+#ifdef __cplusplus
+}
+#endif

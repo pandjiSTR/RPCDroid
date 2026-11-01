@@ -1,5 +1,9 @@
 #pragma once
 #include "websocket.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <stdbool.h>
 #include <time.h>
 
@@ -12,6 +16,9 @@ typedef struct {
     char      session_id[256];
     char      resume_url[512];
     char      username[128];
+    char      user_id[64];
+    char      avatar[128];
+    char      avatar_url[256];
     bool      ready;
 } gateway_t;
 
@@ -34,7 +41,6 @@ int gateway_send_presence(gateway_t *gw,
                           const char *game_name,
                           long long   start_time_ms,
                           const char *app_id,
-                          const char *status,
                           const char *icon_url);
 
 /* Poll for incoming events (non-blocking).
@@ -43,3 +49,7 @@ int gateway_send_presence(gateway_t *gw,
             -1 = connection error (caller must reconnect)
              2 = RECONNECT or INVALID_SESSION (caller must reconnect) */
 int gateway_poll(gateway_t *gw);
+
+#ifdef __cplusplus
+}
+#endif

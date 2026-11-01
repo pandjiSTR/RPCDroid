@@ -2,6 +2,10 @@
 #include <stdio.h>
 #include <time.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define LOG_LEVEL_DEBUG 0
 #define LOG_LEVEL_INFO  1
 #define LOG_LEVEL_WARN  2
@@ -18,3 +22,7 @@ void log_write(int level, const char *fmt, ...);
 #define LOG_INFO(...)  log_write(LOG_LEVEL_INFO,  __VA_ARGS__)
 #define LOG_WARN(...)  log_write(LOG_LEVEL_WARN,  __VA_ARGS__)
 #define LOG_ERROR(...) log_write(LOG_LEVEL_ERROR, __VA_ARGS__)
+
+#ifdef __cplusplus
+}
+#endif

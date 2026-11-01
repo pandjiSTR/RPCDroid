@@ -5,7 +5,7 @@ import { readFile, writeFile } from '../helpers/exec'
 const CONFIG_PATH = '/data/adb/.config/drpc/config.json'
 
 export const useConfigStore = defineStore('config', () => {
-  const pollInterval = ref(5)
+  const pollInterval = ref(3)
   const applicationId = ref('962990036020756480')
   const logLevel = ref(1)
   const loaded = ref(false)
@@ -15,7 +15,7 @@ export const useConfigStore = defineStore('config', () => {
     if (raw) {
       try {
         const c = JSON.parse(raw)
-        pollInterval.value = c.poll_interval ?? 5
+        pollInterval.value = c.poll_interval ?? 3
         applicationId.value = c.application_id ?? '962990036020756480'
         logLevel.value = c.log_level ?? 1
       } catch {}

@@ -9,6 +9,7 @@ import GameIcon from '../components/GameIcon.vue'
 const store = useGamesStore()
 
 const search = ref('')
+const filter = ref('all') // all | on | off
 const editingPkg = ref(null)
 const editingName = ref('')
 const confirmPkg = ref(null)
@@ -35,7 +36,11 @@ onMounted(() => { if (!store.loaded) store.load() })
 const filteredGames = computed(() => {
   const q = search.value.toLowerCase()
   return Object.entries(store.games)
-    .filter(([pkg, g]) => !q || g.name.toLowerCase().includes(q) || pkg.toLowerCase().includes(q))
+    .filter(([pkg, g]) => {
+      if (filter.value === 'on' && !g.enabled) return false
+      if (filter.value === 'off' && g.enabled) return false
+      return !q || g.name.toLowerCase().includes(q) || pkg.toLowerCase().includes(q)
+    })
     .sort((a, b) => a[1].name.localeCompare(b[1].name))
 })
 
@@ -47,7 +52,7 @@ const filteredInstalledApps = computed(() => {
   )
 })
 
-
+const enabledCount = computed(() => Object.values(store.games).filter(g => g.enabled).length)
 
 async function openAddModal() {
   showAddForm.value = true
@@ -168,122 +173,129 @@ async function fetchGameIcon(pkg) {
 <template>
   <div class="page">
     <div class="toolbar">
-      <div class="search">
-        <Icon name="search" :size="17" />
-        <input v-model="search" type="text" placeholder="Search name or package…" />
-        <button v-if="search" class="icon-btn clear" aria-label="Clear" @click="search = ''"><Icon name="x" :size="15" /></button>
+      <div class="searchbar">
+        <Icon name="search" />
+        <input v-model="search" type="text" placeholder="Search games" />
+        <button v-if="search" class="icon-btn" aria-label="Clear" @click="search = ''"><Icon name="close" /></button>
       </div>
-
+      <div class="chips">
+        <button class="chip" :class="{ on: filter === 'all' }" @click="filter = 'all'">
+          <Icon v-if="filter === 'all'" name="check" :size="18" />All {{ Object.keys(store.games).length }}
+        </button>
+        <button class="chip" :class="{ on: filter === 'on' }" @click="filter = 'on'">
+          <Icon v-if="filter === 'on'" name="check" :size="18" />Enabled {{ enabledCount }}
+        </button>
+        <button class="chip" :class="{ on: filter === 'off' }" @click="filter = 'off'">
+          <Icon v-if="filter === 'off'" name="check" :size="18" />Disabled
+        </button>
+      </div>
     </div>
 
-    <div v-if="store.loading" class="empty"><span class="spinner" /><p>Loading games…</p></div>
+    <div v-if="store.loading" class="empty"><span class="spinner" /><p class="t-body-m">Loading games…</p></div>
 
     <div v-else-if="filteredGames.length === 0" class="empty">
-      <span class="empty-ico"><Icon name="gamepad" :size="28" /></span>
-      <p>{{ search ? 'No games match your search.' : 'No games here yet.' }}</p>
+      <span class="empty-ico"><Icon name="sports_esports" :size="32" /></span>
+      <p class="t-title-m">{{ search ? 'No results' : 'No games yet' }}</p>
+      <p class="t-body-m variant">{{ search ? 'Try a different name or package.' : 'Tap Add game to get started.' }}</p>
     </div>
 
     <div v-else class="list">
       <article v-for="[pkg, game] in filteredGames" :key="pkg" class="game" :class="{ off: !game.enabled }">
-        <GameIcon :pkg="pkg" :icon="game.icon" :name="game.name" :size="46" />
+        <GameIcon :pkg="pkg" :icon="game.icon" :name="game.name" :size="48" />
 
         <div class="main">
-          <input
-            v-if="editingPkg === pkg" v-model="editingName" v-focus class="input rename" type="text"
-            @keyup.enter="commitEdit(pkg)" @keyup.escape="cancelEdit" @blur="commitEdit(pkg)"
-          />
-          <button v-else class="name" @click="startEdit(pkg, game.name)" title="Tap to rename">
-            <span>{{ game.name }}</span><Icon name="pencil" :size="12" />
+          <div v-if="editingPkg === pkg" class="tf rename">
+            <input v-model="editingName" v-focus type="text" @keyup.enter="commitEdit(pkg)" @keyup.escape="cancelEdit" @blur="commitEdit(pkg)" />
+          </div>
+          <button v-else class="name t-title-m no-ripple" @click="startEdit(pkg, game.name)" title="Tap to rename">
+            <span>{{ game.name }}</span>
           </button>
-          <span class="pkg">{{ pkg }}</span>
-          <span v-if="game.icon || game.app_id" class="tag tag--ok"><Icon name="image" :size="11" /> Icon linked</span>
-          <button v-else class="tag tag--action" @click="fetchGameIcon(pkg)"><Icon name="plus" :size="11" :stroke="2.4" /> Fetch icon</button>
+          <span class="pkg t-body-s variant">{{ pkg }}</span>
+          <span v-if="game.icon || game.app_id" class="tag tag--ok"><Icon name="image" :size="14" /> Icon linked</span>
+          <button v-else class="tag tag--action" @click="fetchGameIcon(pkg)"><Icon name="add" :size="14" /> Fetch icon</button>
         </div>
 
         <div class="side">
           <ToggleSwitch :model-value="game.enabled" @update:model-value="store.toggleGame(pkg)" />
-          <button class="icon-btn" :class="{ 'icon-btn--danger': confirmPkg === pkg }"
-                  :title="confirmPkg === pkg ? 'Tap again to remove' : 'Remove'" @click="askRemove(pkg)">
-            <Icon name="trash" :size="16" />
+          <button class="icon-btn" :class="{ 'icon-btn--tonal': confirmPkg === pkg }"
+                  :aria-label="confirmPkg === pkg ? 'Tap again to remove' : 'Remove'" @click="askRemove(pkg)">
+            <Icon name="delete" :size="22" />
           </button>
         </div>
       </article>
     </div>
 
-    <button v-if="!showAddForm" class="fab" @click="openAddModal">
-      <Icon name="plus" :size="20" :stroke="2.4" /> Add game
-    </button>
+    <Transition name="fab">
+      <button v-if="!showAddForm" class="fab" @click="openAddModal">
+        <Icon name="add" /> <span class="t-label-l">Add game</span>
+      </button>
+    </Transition>
 
-    <!-- Add game bottom sheet -->
+    <!-- Modal bottom sheet -->
     <Transition name="sheet">
       <div v-if="showAddForm" class="sheet-root">
-        <div class="backdrop" @click="closeSheet" />
+        <div class="scrim" @click="closeSheet" />
         <div class="sheet" role="dialog" aria-modal="true" aria-label="Add game">
           <div class="grab" />
-          <div class="row sheet-head">
-            <h3>Add game</h3>
-            <button class="icon-btn" aria-label="Close" @click="closeSheet"><Icon name="x" :size="20" /></button>
-          </div>
+          <h3 class="t-title-l sheet-title">Add game</h3>
 
           <!-- Step 1: pick an installed app -->
           <div v-if="!selectedApp && !isManualInput" class="stack">
-            <div class="search">
-              <Icon name="search" :size="16" />
-              <input v-model="appSearch" type="text" placeholder="Search installed apps…" />
+            <div class="searchbar searchbar--sheet">
+              <Icon name="search" />
+              <input v-model="appSearch" type="text" placeholder="Search installed apps" />
             </div>
 
-            <div v-if="loadingApps" class="empty sm"><span class="spinner" /><p>Scanning installed apps…</p></div>
-            <div v-else-if="filteredInstalledApps.length === 0" class="empty sm"><p>No non-system apps found.</p></div>
+            <div v-if="loadingApps" class="empty sm"><span class="spinner" /><p class="t-body-m">Scanning installed apps…</p></div>
+            <div v-else-if="filteredInstalledApps.length === 0" class="empty sm"><p class="t-body-m">No non-system apps found.</p></div>
             <div v-else class="picker">
               <button v-for="app in filteredInstalledApps" :key="app.packageName" class="pick"
                       :class="{ exists: store.games[app.packageName] }" @click="selectInstalledApp(app)">
-                <GameIcon :pkg="app.packageName" :name="app.appLabel" :size="38" />
-                <span class="pick-info"><b>{{ app.appLabel }}</b><small>{{ app.packageName }}</small></span>
+                <GameIcon :pkg="app.packageName" :name="app.appLabel" :size="40" />
+                <span class="pick-info"><b class="t-body-l">{{ app.appLabel }}</b><small class="t-body-s variant">{{ app.packageName }}</small></span>
                 <span v-if="store.games[app.packageName]" class="tag">Added</span>
-                <Icon v-else name="chevron" :size="16" />
+                <Icon v-else name="chevron_right" />
               </button>
             </div>
 
-            <button class="link" @click="isManualInput = true">Enter package name manually</button>
+            <button class="btn" @click="isManualInput = true">Enter package name manually</button>
           </div>
 
           <!-- Step 2: details -->
           <div v-else class="stack">
             <div v-if="selectedApp" class="chosen">
-              <GameIcon :pkg="newPkg" :icon="newIcon" :name="newName" :size="42" />
-              <span class="pick-info"><b>{{ newName }}</b><small>{{ newPkg }}</small></span>
-              <button class="btn btn--ghost btn--sm" @click="resetSelection">Change</button>
+              <GameIcon :pkg="newPkg" :icon="newIcon" :name="newName" :size="44" />
+              <span class="pick-info"><b class="t-title-m">{{ newName }}</b><small class="t-body-s variant">{{ newPkg }}</small></span>
+              <button class="btn" @click="resetSelection">Change</button>
             </div>
 
-            <div v-if="isManualInput" class="field">
-              <label class="field-label">Package name</label>
-              <div class="row">
-                <input v-model="newPkg" class="input" type="text" placeholder="com.example.game" @blur="manualFetchIcon" />
-                <button class="btn btn--ghost btn--sm" :disabled="fetchingIcon" @click="manualFetchIcon">Fetch</button>
+            <div v-if="isManualInput" class="row">
+              <div class="tf grow">
+                <label>Package name</label>
+                <input v-model="newPkg" type="text" placeholder="com.example.game" @blur="manualFetchIcon" />
               </div>
+              <button class="btn btn--tonal" :disabled="fetchingIcon" @click="manualFetchIcon">Fetch</button>
             </div>
 
-            <div class="field">
-              <label class="field-label">Display name</label>
-              <input v-model="newName" class="input" type="text" placeholder="Name shown in Discord" @keyup.enter="doAddGame" />
+            <div class="tf">
+              <label>Display name</label>
+              <input v-model="newName" type="text" placeholder="Name shown in Discord" @keyup.enter="doAddGame" />
             </div>
 
-            <div class="field">
-              <label class="field-label">
-                Icon URL <span v-if="fetchingIcon" class="fetching">Resolving Play Store icon…</span>
-              </label>
-              <input v-model="newIcon" class="input" type="text" placeholder="https://play-lh.googleusercontent.com/… (optional)" @keyup.enter="doAddGame" />
-              <div v-if="newIcon" class="preview">
-                <img :src="getIconDisplayUrl(newIcon)" alt="Icon preview" />
-                <span>Preview from Discord CDN / Google Play</span>
-              </div>
+            <div class="tf">
+              <label>Icon URL <span v-if="fetchingIcon" class="fetching">Resolving Play Store icon…</span></label>
+              <input v-model="newIcon" type="text" placeholder="https://play-lh.googleusercontent.com/… (optional)" @keyup.enter="doAddGame" />
+            </div>
+            <div v-if="newIcon" class="preview">
+              <img :src="getIconDisplayUrl(newIcon)" alt="Icon preview" />
+              <span class="t-body-s variant">Preview from Discord CDN / Google Play</span>
             </div>
 
-            <p v-if="addError" class="error">{{ addError }}</p>
+            <p v-if="addError" class="error t-body-s">{{ addError }}</p>
 
-            <div class="row">
-              <button class="btn btn--ghost" @click="resetSelection">{{ isManualInput ? 'Back' : 'Cancel' }}</button>
-              <button class="btn btn--primary grow" @click="doAddGame">Add game</button>
+            <div class="row end">
+              <button class="btn" @click="resetSelection">{{ isManualInput ? 'Back' : 'Cancel' }}</button>
+              <button class="btn btn--filled" @click="doAddGame">Add game</button>
             </div>
           </div>
         </div>
@@ -294,91 +306,72 @@ async function fetchGameIcon(pkg) {
 
 <style scoped>
 .toolbar {
-  display: flex; flex-direction: column; gap: 10px;
-  position: sticky; z-index: 40; top: calc(env(safe-area-inset-top, 0px) + 60px);
-  padding-bottom: 8px; background: linear-gradient(var(--bg) 80%, transparent);
+  position: sticky; z-index: 40; top: calc(64px + env(safe-area-inset-top, 0px));
+  display: flex; flex-direction: column; gap: 12px; padding: 4px 0 8px; margin-top: -4px;
+  background: var(--md-surface);
 }
+.searchbar svg { flex-shrink: 0; }
 
-.search {
-  display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 12px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 14px; color: var(--muted);
-}
-.search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.search input { flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; color: var(--text); font-size: 14px; }
-.search input::placeholder { color: var(--muted); }
-.clear { width: 28px; height: 28px; }
-
-.list { display: flex; flex-direction: column; gap: 10px; }
+.list { display: flex; flex-direction: column; gap: 8px; }
 .game {
-  display: flex; align-items: center; gap: 12px; padding: 12px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 18px;
-  content-visibility: auto; contain-intrinsic-size: auto 92px;
-  transition: opacity 0.2s;
+  display: flex; align-items: center; gap: 16px; padding: 12px 16px; border-radius: var(--shape-l);
+  background: var(--md-surface-container-low);
+  content-visibility: auto; contain-intrinsic-size: auto 96px; transition: opacity .2s;
 }
-.game.off { opacity: 0.55; }
-.main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
-.name {
-  display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 0; border: 0; background: none;
-  color: var(--text); font-size: 15px; font-weight: 650; cursor: pointer; text-align: left;
-}
-.name span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.25; }
-.name svg { color: var(--muted); opacity: 0.6; flex-shrink: 0; }
-.rename { height: 34px; font-size: 14px; border-color: var(--accent); }
-.pkg { max-width: 100%; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.side { display: flex; flex-direction: column; align-items: center; gap: 6px; flex-shrink: 0; }
+.game.off { opacity: .6; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.name { padding: 0; border: 0; background: none; color: var(--md-on-surface); text-align: left; cursor: pointer; max-width: 100%; }
+.name span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.rename { width: 100%; padding: 4px 12px 3px; }
+.rename input { margin-top: 0; font-size: 16px; }
+.pkg { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.main .tag { margin-top: 6px; }
+.side { display: flex; flex-direction: column; align-items: center; gap: 4px; flex-shrink: 0; }
 
-.tag {
-  display: inline-flex; align-items: center; gap: 4px; margin-top: 3px; height: 22px; padding: 0 8px;
-  border: 0; border-radius: 99px; font-size: 10.5px; font-weight: 700; background: var(--surface-2); color: var(--muted);
-}
-.tag--ok { background: var(--green-soft); color: var(--green); }
-.tag--action { background: var(--accent-soft); color: var(--accent); cursor: pointer; }
+.empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 56px 16px; color: var(--md-on-surface-variant); text-align: center; }
+.empty.sm { padding: 24px 16px; }
+.empty-ico { width: 72px; height: 72px; border-radius: 24px; display: grid; place-items: center; margin-bottom: 8px; background: var(--md-secondary-container); color: var(--md-on-secondary-container); }
+.empty .t-title-m { color: var(--md-on-surface); }
 
-.empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 56px 16px; color: var(--muted); font-size: 14px; }
-.empty.sm { padding: 28px 16px; }
-.empty-ico { width: 60px; height: 60px; border-radius: 20px; display: grid; place-items: center; background: var(--surface-2); }
-
+/* Extended FAB */
 .fab {
-  position: fixed; z-index: 90; right: 16px; bottom: calc(92px + env(safe-area-inset-bottom, 0px));
-  height: 50px; padding: 0 20px 0 16px; border: 0; border-radius: 99px;
-  display: flex; align-items: center; gap: 8px; color: #fff; font-size: 14px; font-weight: 700; cursor: pointer;
-  background: var(--grad); box-shadow: 0 14px 30px -10px rgba(88, 101, 242, 0.95);
-  transition: transform 0.12s;
+  position: fixed; z-index: 90; right: 16px; bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  height: 56px; padding: 0 20px 0 16px; border: 0; border-radius: var(--shape-l); cursor: pointer;
+  display: flex; align-items: center; gap: 12px;
+  background: var(--md-primary-container); color: var(--md-on-primary-container); box-shadow: var(--elev-3);
 }
-.fab:active { transform: scale(0.95); }
+.fab-enter-active, .fab-leave-active { transition: all .2s var(--ease); }
+.fab-enter-from, .fab-leave-to { opacity: 0; transform: scale(.8); }
 
-/* Bottom sheet */
+/* Modal bottom sheet */
 .sheet-root { position: fixed; inset: 0; z-index: 200; display: flex; align-items: flex-end; }
-.backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.6); }
+.scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, .32); }
 .sheet {
-  position: relative; width: 100%; max-height: 88vh; overflow-y: auto;
-  padding: 10px 18px calc(20px + env(safe-area-inset-bottom, 0px));
-  background: var(--bg-2); border: 1px solid var(--border-strong); border-bottom: 0;
-  border-radius: 26px 26px 0 0; display: flex; flex-direction: column; gap: 14px;
+  position: relative; width: 100%; max-height: 90vh; overflow-y: auto;
+  padding: 12px 24px calc(24px + env(safe-area-inset-bottom, 0px)); border-radius: var(--shape-xl) var(--shape-xl) 0 0;
+  background: var(--md-surface-container-low); display: flex; flex-direction: column; gap: 16px;
 }
-.grab { width: 38px; height: 4px; border-radius: 4px; background: var(--border-strong); margin: 0 auto; }
-.sheet-head h3 { font-size: 17px; font-weight: 750; }
-.sheet-enter-active, .sheet-leave-active { transition: opacity 0.28s ease; }
-.sheet-enter-active .sheet, .sheet-leave-active .sheet { transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.grab { width: 32px; height: 4px; border-radius: 2px; margin: 0 auto; background: var(--md-on-surface-variant); opacity: .4; }
+.sheet-enter-active, .sheet-leave-active { transition: opacity .3s var(--ease); }
+.sheet-enter-active .sheet, .sheet-leave-active .sheet { transition: transform .3s var(--ease); }
 .sheet-enter-from, .sheet-leave-to { opacity: 0; }
 .sheet-enter-from .sheet, .sheet-leave-to .sheet { transform: translateY(100%); }
+.searchbar--sheet { background: var(--md-surface-container-high); }
 
-.picker { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; margin: 0 -6px; padding: 0 6px; }
+.picker { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; margin: 0 -12px; }
 .pick {
-  display: flex; align-items: center; gap: 12px; padding: 8px; border: 0; border-radius: 14px;
-  background: transparent; color: var(--muted); text-align: left; cursor: pointer;
+  display: flex; align-items: center; gap: 16px; padding: 8px 12px; border: 0; border-radius: var(--shape-m);
+  background: transparent; color: var(--md-on-surface-variant); text-align: left; cursor: pointer;
 }
-.pick:active { background: var(--accent-soft); }
-.pick.exists { opacity: 0.5; }
-.pick-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.pick-info b { font-size: 14px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pick-info small { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.link { align-self: flex-start; padding: 4px 0; border: 0; background: none; color: var(--accent); font-size: 13px; font-weight: 600; cursor: pointer; }
+.pick.exists { opacity: .5; }
+.pick-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pick-info b { font-weight: 400; color: var(--md-on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick-info small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.chosen { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 16px; background: var(--surface-2); border: 1px solid var(--border); }
-.fetching { color: var(--accent); font-weight: 500; }
-.preview { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--muted); }
-.preview img { width: 38px; height: 38px; border-radius: 10px; object-fit: cover; border: 1px solid var(--border); }
-.error { font-size: 12px; color: var(--red); }
-.grow { flex: 1; }
+.chosen { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: var(--shape-l); background: var(--md-surface-container-highest); }
+.fetching { color: var(--md-primary); }
+.preview { display: flex; align-items: center; gap: 12px; }
+.preview img { width: 40px; height: 40px; border-radius: 12px; object-fit: cover; }
+.error { color: var(--md-error); }
+.row.end { justify-content: flex-end; }
 </style>

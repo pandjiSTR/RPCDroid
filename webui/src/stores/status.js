@@ -6,6 +6,8 @@ export const useStatusStore = defineStore('status', () => {
   const isRunning = ref(false)
   const currentGame = ref(null)
   const discordUsername = ref(null)
+  const discordAvatar = ref(null)
+  const pid = ref(null)
   const error = ref(null)
   const hasToken = ref(false)
   let pollTimer = null
@@ -22,6 +24,8 @@ export const useStatusStore = defineStore('status', () => {
         const s = JSON.parse(raw)
         currentGame.value = s.current_game || null
         discordUsername.value = s.discord_username || null
+        discordAvatar.value = s.discord_avatar || null
+        pid.value = s.pid || null
         error.value = s.error || null
       } catch {}
     }
@@ -36,5 +40,5 @@ export const useStatusStore = defineStore('status', () => {
     if (pollTimer) clearInterval(pollTimer)
   }
 
-  return { isRunning, currentGame, discordUsername, error, hasToken, refresh, startPolling, stopPolling }
+  return { isRunning, currentGame, discordUsername, discordAvatar, pid, error, hasToken, refresh, startPolling, stopPolling }
 })

@@ -245,7 +245,10 @@ export function getIconDisplayUrl(icon) {
   return icon
 }
 
+let _installedAppsCache = null
+
 export async function getInstalledApps() {
+  if (_installedAppsCache && _installedAppsCache.length > 0) return _installedAppsCache
   // Method 1: KernelSU pm API (non-system / user packages with labels)
   try {
     let pkgs = []
@@ -281,6 +284,7 @@ export async function getInstalledApps() {
           })
         if (apps.length > 0) {
           apps.sort((a, b) => a.appLabel.localeCompare(b.appLabel))
+          _installedAppsCache = apps
           return apps
         }
       } else {
@@ -294,6 +298,7 @@ export async function getInstalledApps() {
           }
         })
         apps.sort((a, b) => a.appLabel.localeCompare(b.appLabel))
+        _installedAppsCache = apps
         return apps
       }
     }
@@ -325,7 +330,7 @@ export async function getInstalledApps() {
     console.error('pm list packages fallback failed:', e)
   }
 
-  return []
+  return _installedAppsCache || []
 }
 
 export async function fetchPlayStoreMetadata(pkg) {
@@ -342,7 +347,7 @@ export async function fetchPlayStoreMetadata(pkg) {
   try {
     const cmd = `
 PKG="${pkg}"
-URL=$(curl -s -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "https://play.google.com/store/apps/details?id=$PKG" 2>/dev/null)
+URL=$(curl -s -L --max-time 15 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "https://play.google.com/store/apps/details?id=$PKG" 2>/dev/null)
 TITLE=$(echo "$URL" | grep -o 'property="og:title" content="[^"]*"' | head -1 | cut -d'"' -f4 | sed 's/ - Apps on Google Play$//')
 ICON=$(echo "$URL" | grep -o 'property="og:image" content="[^"]*"' | head -1 | cut -d'"' -f4)
 [ -z "$ICON" ] && ICON=$(echo "$URL" | grep -o 'https://play-lh.googleusercontent.com/[^" ]*' | head -1)

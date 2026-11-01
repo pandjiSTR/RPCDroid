@@ -1,6 +1,10 @@
 #pragma once
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct ws_ctx ws_ctx_t;
 
 /* Connect to wss://host:port/path. Returns NULL on failure. */
@@ -26,3 +30,7 @@ int ws_is_connected(ws_ctx_t *ctx);
 int discord_resolve_external_asset(const char *app_id, const char *token,
                                    const char *image_url,
                                    char *out_mp, size_t out_len);
+
+#ifdef __cplusplus
+}
+#endif

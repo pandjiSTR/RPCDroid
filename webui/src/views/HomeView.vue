@@ -49,25 +49,28 @@ const totalCount = computed(() => Object.keys(gamesStore.games).length)
 
 <template>
   <div class="page">
-    <div v-if="!statusStore.hasToken" class="banner banner--warn tap" @click="router.push('/settings')">
-      <Icon name="alert" :size="16" />
-      <span>No Discord token configured. Tap to open Settings.</span>
-    </div>
+    <button v-if="!statusStore.hasToken" class="banner banner--warn no-ripple" @click="router.push('/settings')">
+      <Icon name="warning" />
+      <span class="grow t-body-m">No Discord token configured. Tap to open Settings.</span>
+      <Icon name="chevron_right" />
+    </button>
 
     <div v-if="statusStore.error" class="banner banner--error">
-      <Icon name="alert" :size="16" />
-      <span>{{ statusStore.error }}</span>
+      <Icon name="warning" /><span class="t-body-m">{{ statusStore.error }}</span>
     </div>
 
     <!-- Hero -->
-    <section class="card hero" :class="{ 'hero--on': statusStore.isRunning }">
+    <section class="hero" :class="{ 'hero--on': statusStore.isRunning }">
       <div class="orb">
         <span class="ring" />
-        <span class="core"><Icon name="power" :size="30" :stroke="2.2" /></span>
+        <span class="core">
+          <img v-if="statusStore.discordAvatar" :src="statusStore.discordAvatar" alt="Profile" class="avatar" />
+          <Icon v-else name="power_settings_new" :size="36" />
+        </span>
       </div>
       <div class="hero-text">
-        <h2>{{ statusStore.isRunning ? 'Rich Presence active' : 'Daemon is stopped' }}</h2>
-        <p class="muted">
+        <h2 class="t-headline-s">{{ statusStore.isRunning ? 'Rich Presence active' : 'Daemon is stopped' }}</h2>
+        <p class="t-body-m">
           <template v-if="statusStore.isRunning && statusStore.discordUsername">Signed in as {{ statusStore.discordUsername }}</template>
           <template v-else-if="statusStore.isRunning">Waiting for Discord session…</template>
           <template v-else>Start the daemon to show your game on Discord</template>
@@ -75,38 +78,34 @@ const totalCount = computed(() => Object.keys(gamesStore.games).length)
       </div>
 
       <div class="actions">
-        <button v-if="!statusStore.isRunning" class="btn btn--primary btn--block"
+        <button v-if="!statusStore.isRunning" class="btn btn--filled btn--lg btn--block"
                 :disabled="actionLoading || !statusStore.hasToken" @click="doStart">
-          <Icon name="play" :size="16" /> Start daemon
+          <Icon name="play_arrow" /> Start daemon
         </button>
         <template v-else>
-          <button class="btn btn--danger" :disabled="actionLoading" @click="doStop">
-            <Icon name="stop" :size="16" /> Stop
-          </button>
-          <button class="btn btn--ghost" :disabled="actionLoading" @click="doRestart">
-            <Icon name="refresh" :size="16" /> Restart
-          </button>
+          <button class="btn btn--outlined btn--lg grow stop" :disabled="actionLoading" @click="doStop"><Icon name="stop" /> Stop</button>
+          <button class="btn btn--filled btn--lg grow" :disabled="actionLoading" @click="doRestart"><Icon name="restart_alt" /> Restart</button>
         </template>
       </div>
-      <p v-if="actionMsg" class="hint"><span class="spinner sm" /> {{ actionMsg }}</p>
-      <p v-else-if="!statusStore.hasToken && !statusStore.isRunning" class="hint">Add your token in Settings first.</p>
+      <p v-if="actionMsg" class="hint t-body-s"><span class="spinner sm" /> {{ actionMsg }}</p>
+      <p v-else-if="!statusStore.hasToken && !statusStore.isRunning" class="hint t-body-s">Add your token in Settings first.</p>
     </section>
 
     <!-- Now playing -->
-    <section class="card now">
+    <section class="card card--low now">
       <template v-if="nowPlaying">
-        <GameIcon :pkg="nowPlaying.pkg" :icon="nowPlaying.icon" :name="nowPlaying.name" :size="54" />
-        <div class="now-info">
-          <span class="eyebrow">Now playing</span>
-          <strong>{{ nowPlaying.name }}</strong>
+        <GameIcon :pkg="nowPlaying.pkg" :icon="nowPlaying.icon" :name="nowPlaying.name" :size="56" />
+        <div class="grow info">
+          <span class="t-label-m variant">NOW PLAYING</span>
+          <strong class="t-title-m name">{{ nowPlaying.name }}</strong>
         </div>
-        <span class="live"><i />LIVE</span>
+        <span class="tag tag--ok live"><i />Live</span>
       </template>
       <template v-else>
-        <span class="idle-ico"><Icon name="gamepad" :size="22" /></span>
-        <div class="now-info">
-          <span class="eyebrow">Now playing</span>
-          <strong class="muted">{{ statusStore.isRunning ? 'No game detected' : 'Idle' }}</strong>
+        <span class="idle"><Icon name="sports_esports" :size="28" /></span>
+        <div class="grow info">
+          <span class="t-label-m variant">NOW PLAYING</span>
+          <strong class="t-title-m variant">{{ statusStore.isRunning ? 'No game detected' : 'Idle' }}</strong>
         </div>
       </template>
     </section>
@@ -114,56 +113,66 @@ const totalCount = computed(() => Object.keys(gamesStore.games).length)
     <!-- Stats -->
     <section class="stats">
       <div class="stat">
-        <Icon name="gamepad" :size="16" />
-        <strong>{{ enabledCount }}<small>/{{ totalCount }}</small></strong>
-        <span>Games on</span>
+        <Icon name="sports_esports" :size="20" />
+        <strong class="t-title-l">{{ enabledCount }}<small class="t-body-m">/{{ totalCount }}</small></strong>
+        <span class="t-label-m">Games on</span>
       </div>
       <div class="stat">
-        <Icon name="clock" :size="16" />
-        <strong>{{ configStore.pollInterval }}<small>s</small></strong>
-        <span>Poll interval</span>
+        <Icon name="schedule" :size="20" />
+        <strong class="t-title-l">{{ configStore.pollInterval }}<small class="t-body-m">s</small></strong>
+        <span class="t-label-m">Poll interval</span>
+      </div>
+      <div class="stat">
+        <Icon name="vpn_key" :size="20" />
+        <strong class="t-title-l">{{ statusStore.pid || '—' }}</strong>
+        <span class="t-label-m">Daemon PID</span>
       </div>
     </section>
   </div>
 </template>
 
 <style scoped>
-.tap { cursor: pointer; }
+.banner { border: 0; width: 100%; text-align: left; cursor: pointer; font-family: inherit; }
 
-.hero { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 14px; padding: 24px 18px 18px; }
-.hero--on { background: radial-gradient(120% 90% at 50% 0%, var(--accent-soft), transparent 65%), var(--surface); border-color: rgba(123, 131, 255, 0.3); }
-.hero-text h2 { font-size: 20px; font-weight: 750; letter-spacing: -0.01em; }
-.hero-text p { font-size: 13px; margin-top: 4px; }
-
-.orb { position: relative; width: 96px; height: 96px; display: grid; place-items: center; }
-.core {
-  width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center;
-  background: var(--surface-2); border: 1px solid var(--border); color: var(--muted);
-  transition: all 0.3s;
+.hero {
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 16px;
+  padding: 28px 20px 20px; border-radius: var(--shape-xl);
+  background: var(--md-surface-container-high); color: var(--md-on-surface);
+  transition: background .3s var(--ease);
 }
-.ring { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--accent); opacity: 0; }
-.hero--on .core { background: var(--grad); color: #fff; border-color: transparent; box-shadow: 0 0 44px -4px rgba(88, 101, 242, 0.75); }
-.hero--on .ring { animation: ping 2.2s cubic-bezier(0, 0, 0.2, 1) infinite; }
-@keyframes ping { 0% { transform: scale(0.75); opacity: 0.65; } 100% { transform: scale(1.3); opacity: 0; } }
+.hero--on { background: var(--md-primary-container); color: var(--md-on-primary-container); }
+.hero-text p { margin-top: 4px; opacity: .78; }
 
-.actions { display: flex; gap: 10px; width: 100%; }
-.actions .btn { flex: 1; }
-.hint { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.orb { position: relative; width: 112px; height: 112px; display: grid; place-items: center; }
+.core {
+  width: 88px; height: 88px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--md-surface-container-highest); color: var(--md-on-surface-variant); transition: all .3s var(--ease);
+  overflow: hidden;
+}
+.core .avatar { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+.ring { position: absolute; inset: 0; border-radius: 50%; border: 3px solid var(--md-primary); opacity: 0; }
+.hero--on .core { background: var(--md-primary); color: var(--md-on-primary); }
+.hero--on .ring { animation: ping 2.4s cubic-bezier(0, 0, .2, 1) infinite; }
+@keyframes ping { 0% { transform: scale(.78); opacity: .7; } 100% { transform: scale(1.25); opacity: 0; } }
+
+.actions { display: flex; gap: 12px; width: 100%; }
+.stop { color: inherit; border-color: currentColor; }
+.hint { display: flex; align-items: center; gap: 8px; opacity: .78; }
 .spinner.sm { width: 14px; height: 14px; border-width: 2px; }
 
-.now { display: flex; align-items: center; gap: 14px; padding: 14px; }
-.now-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.now-info strong { font-size: 16px; font-weight: 700; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-.idle-ico { width: 54px; height: 54px; border-radius: 15px; display: grid; place-items: center; background: var(--surface-2); color: var(--muted); }
-.live { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; padding: 5px 10px; border-radius: 99px; background: var(--green-soft); color: var(--green); }
-.live i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: blink 1.4s ease-in-out infinite; }
-@keyframes blink { 50% { opacity: 0.25; } }
+.now { display: flex; align-items: center; gap: 16px; padding: 16px; border-radius: var(--shape-l); }
+.info { display: flex; flex-direction: column; gap: 2px; }
+.name { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.idle { width: 56px; height: 56px; border-radius: 16px; display: grid; place-items: center; background: var(--md-surface-container-highest); color: var(--md-on-surface-variant); }
+.live i { width: 8px; height: 8px; border-radius: 50%; background: var(--md-tertiary); animation: blink 1.4s ease-in-out infinite; }
+@keyframes blink { 50% { opacity: .25; } }
 
-.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.stat { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 12px; display: flex; flex-direction: column; gap: 4px; }
-.stat svg { color: var(--accent); margin-bottom: 2px; }
-.stat strong { font-size: 18px; font-weight: 750; }
-.stat small { font-size: 12px; color: var(--muted); font-weight: 600; margin-left: 1px; }
-.stat span { font-size: 11px; color: var(--muted); }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.stat {
+  background: var(--md-secondary-container); color: var(--md-on-secondary-container);
+  border-radius: var(--shape-l); padding: 14px 14px 12px; display: flex; flex-direction: column; gap: 2px;
+}
+.stat svg { margin-bottom: 6px; }
+.stat small { opacity: .75; margin-left: 1px; }
+.stat span { opacity: .78; }
 </style>

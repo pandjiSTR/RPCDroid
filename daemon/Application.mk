@@ -1,4 +1,4 @@
 APP_ABI      := arm64-v8a armeabi-v7a x86_64
 APP_PLATFORM := android-29
-APP_STL      := none
+APP_STL      := c++_static
 APP_OPTIM    := release
