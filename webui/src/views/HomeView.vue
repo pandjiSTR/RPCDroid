@@ -25,8 +25,13 @@ async function run(msg, fn, wait) {
   actionLoading.value = true
   actionMsg.value = msg
   await fn()
-  await new Promise(r => setTimeout(r, wait))
-  await statusStore.refresh()
+  // poll until daemon state matches intent (max ~10s)
+  const target = msg.startsWith('Stopping') ? false : true
+  for (let i = 0; i < 20; i++) {
+    await new Promise(r => setTimeout(r, 500))
+    await statusStore.refresh()
+    if (statusStore.isRunning === target) break
+  }
   actionMsg.value = ''
   actionLoading.value = false
 }

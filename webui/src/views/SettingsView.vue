@@ -55,6 +55,10 @@ async function saveToken() {
   if (t.length < 10) return
   tokenLoading.value = true
   const ok = await writeFile(TOKEN_PATH, t)
+  if (ok) {
+    const enabled = await readFile('/data/adb/.config/drpc/enabled')
+    if (!enabled) await ksuExec('touch /data/adb/.config/drpc/enabled')
+  }
   await statusStore.refresh()
   tokenLoading.value = false
   ok ? toast('Token saved') : toast('Failed to save token', true)

@@ -28,15 +28,16 @@ export async function isDaemonRunning() {
 }
 
 export async function startDaemon() {
-  return ksuExec('/data/adb/modules/rpcdroid/bin/rpcdroid daemon >/dev/null 2>&1 &')
+  await ksuExec('touch /data/adb/.config/drpc/enabled')
+  return ksuExec('true')
 }
 
 export async function stopDaemon() {
+  await ksuExec('rm -f /data/adb/.config/drpc/enabled')
   return ksuExec('killall rpcdroid 2>/dev/null; true')
 }
 
 export async function restartDaemon() {
-  await stopDaemon()
-  await new Promise(r => setTimeout(r, 1500))
-  return startDaemon()
+  await ksuExec('killall rpcdroid 2>/dev/null; true')
+  return ksuExec('true')
 }
