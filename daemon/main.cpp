@@ -1,9 +1,7 @@
 #include <atomic>
-#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <iostream>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -29,6 +27,7 @@ static gateway_t *g_gw = nullptr;
 static char *g_current_game = nullptr;
 static long long g_game_start_ms = 0;
 static int g_active_game_pid = 0;
+static char g_last_sig[1024] = {0};   /* dedupe key for last presence sent; reset on game close */
 static std::mutex g_state_mtx;
 static std::atomic<bool> g_pending_clear{false};
 static std::atomic<bool> g_pending_game{false};
@@ -134,10 +133,9 @@ int main(int argc, char *argv[]) {
             const char *aid = (gappid && gappid[0]) ? gappid : g_config.application_id;
             char sig[1024];
             snprintf(sig, sizeof(sig), "%s|%s|%s", gname ? gname : "", aid ? aid : "", gicon ? gicon : "");
-            static char last_sig[1024] = {0};
-            if (!(last_sig[0] && strcmp(last_sig, sig) == 0)) {
+            if (!(g_last_sig[0] && strcmp(g_last_sig, sig) == 0)) {
                 if (gname && g_gw) gateway_send_presence(g_gw, gname, g_game_start_ms, aid, gicon);
-                snprintf(last_sig, sizeof(last_sig), "%s", sig);
+                snprintf(g_last_sig, sizeof(g_last_sig), "%s", sig);
             }
             if (gname) config_write_status(true, gname, g_gw ? g_gw->username : nullptr, g_gw ? g_gw->avatar_url : nullptr);
         }
@@ -151,6 +149,7 @@ int main(int argc, char *argv[]) {
                 g_current_game = nullptr;
                 g_game_start_ms = 0;
                 runtime_clear();
+                g_last_sig[0] = '\0';
                 if (g_gw) gateway_send_presence(g_gw, nullptr, 0, g_config.application_id, nullptr);
                 config_write_status(true, nullptr, g_gw ? g_gw->username : nullptr, g_gw ? g_gw->avatar_url : nullptr);
             }
