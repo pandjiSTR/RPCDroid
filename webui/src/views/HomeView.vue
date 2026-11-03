@@ -70,6 +70,9 @@ const totalCount = computed(() => Object.keys(gamesStore.games).length)
       </div>
       <div class="hero-text">
         <h2 class="t-headline-s">{{ statusStore.isRunning ? 'Rich Presence active' : 'Daemon is stopped' }}</h2>
+        <p v-if="statusStore.isRunning" class="t-body-s" :class="statusStore.connected ? 'ok' : 'warn'">
+          Gateway: {{ statusStore.connected ? 'connected' : 'disconnected' }}
+        </p>
         <p class="t-body-m">
           <template v-if="statusStore.isRunning && statusStore.discordUsername">Signed in as {{ statusStore.discordUsername }}</template>
           <template v-else-if="statusStore.isRunning">Waiting for Discord session…</template>

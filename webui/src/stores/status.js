@@ -4,6 +4,7 @@ import { isDaemonRunning, readFile } from '../helpers/exec'
 
 export const useStatusStore = defineStore('status', () => {
   const isRunning = ref(false)
+  const connected = ref(false)
   const currentGame = ref(null)
   const discordUsername = ref(null)
   const discordAvatar = ref(null)
@@ -26,6 +27,7 @@ export const useStatusStore = defineStore('status', () => {
         discordUsername.value = s.discord_username || null
         discordAvatar.value = s.discord_avatar || null
         pid.value = s.pid || null
+        connected.value = !!s.connected
         error.value = s.error || null
       } catch {}
     }
@@ -40,5 +42,5 @@ export const useStatusStore = defineStore('status', () => {
     if (pollTimer) clearInterval(pollTimer)
   }
 
-  return { isRunning, currentGame, discordUsername, discordAvatar, pid, error, hasToken, refresh, startPolling, stopPolling }
+  return { isRunning, connected, currentGame, discordUsername, discordAvatar, pid, error, hasToken, refresh, startPolling, stopPolling }
 })

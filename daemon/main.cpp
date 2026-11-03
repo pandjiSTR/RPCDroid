@@ -59,9 +59,9 @@ static void on_fg(int32_t pid, int32_t uid, bool foreground) {
 }
 
 static void on_died(int32_t pid, int32_t uid) {
-    LOG_INFO("Process died: pid=%d uid=%d (active=%d)", pid, uid, g_active_game_pid);
     std::lock_guard<std::mutex> lk(g_state_mtx);
     if (g_active_game_pid == pid) {
+        LOG_INFO("Process died: pid=%d uid=%d (active game)", pid, uid);
         g_pending_clear.store(true);
     }
 }
@@ -69,8 +69,15 @@ static void on_died(int32_t pid, int32_t uid) {
 int main(int argc, char *argv[]) {
     (void)argc; (void)argv;
     daemon(0, 0);
+
+    /* Make daemon unkillable by LMK */
+    {
+        FILE *oom = fopen("/proc/self/oom_score_adj", "w");
+        if (oom) { fprintf(oom, "-1000"); fclose(oom); }
+    }
+
     log_init(LOG_FILE, LOG_LEVEL_INFO);
-    LOG_INFO("rpcdroid starting (C++/Binder)");
+    LOG_INFO("rpcdroid daemon started (pid=%d)", (int)getpid());
 
     config_load();
     token_load();
@@ -208,6 +215,7 @@ int main(int argc, char *argv[]) {
         gateway_send_presence(g_gw, nullptr, 0, g_config.application_id, nullptr);
         gateway_disconnect(g_gw);
     }
+    LOG_INFO("rpcdroid daemon stopping");
     config_write_status(false, nullptr, nullptr, nullptr);
     free(g_current_game);
     gamelist_free();
