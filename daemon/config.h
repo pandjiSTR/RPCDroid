@@ -42,6 +42,7 @@ const char *gamelist_get_name(const char *package);   /* NULL if not found/disab
 const char *gamelist_get_icon(const char *package);   /* NULL if not found/no icon */
 const char *gamelist_get_app_id(const char *package); /* NULL if not found/no custom app_id */
 void        config_write_status(bool connected, const char *game, const char *discord_username, const char *discord_avatar);
+void        config_write_error(const char *error_msg);
 int         runtime_save(const char *package, long long start_ms);
 int         runtime_load(char *package, size_t pkg_len, long long *start_ms);
 void        runtime_clear(void);

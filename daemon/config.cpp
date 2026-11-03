@@ -487,4 +487,52 @@ void runtime_clear(void)
     remove(RUNTIME_FILE);
 }
 
+
+/* Write an error message into status.json (preserving other fields) */
+void config_write_error(const char *error_msg) {
+    ensure_config_dir();
+    FILE *f = fopen(STATUS_FILE, "r");
+    char game[256] = {0}, user[256] = {0}, avatar[256] = {0};
+    int connected = 0, pid = (int)getpid();
+    if (f) {
+        fseek(f, 0, SEEK_END);
+        long sz = ftell(f);
+        rewind(f);
+        if (sz > 0) {
+            char *buf = (char*)malloc(sz + 1);
+            if (buf && fread(buf, 1, sz, f) == (size_t)sz) {
+                buf[sz] = '\0';
+                cJSON *root = cJSON_Parse(buf);
+                if (root) {
+                    cJSON *c = cJSON_GetObjectItemCaseSensitive(root, "connected");
+                    if (cJSON_IsBool(c)) connected = cJSON_IsTrue(c);
+                    cJSON *g = cJSON_GetObjectItemCaseSensitive(root, "current_game");
+                    if (cJSON_IsString(g) && g->valuestring) snprintf(game, sizeof(game), "%s", g->valuestring);
+                    cJSON *u = cJSON_GetObjectItemCaseSensitive(root, "discord_username");
+                    if (cJSON_IsString(u) && u->valuestring) snprintf(user, sizeof(user), "%s", u->valuestring);
+                    cJSON *a = cJSON_GetObjectItemCaseSensitive(root, "discord_avatar");
+                    if (cJSON_IsString(a) && a->valuestring) snprintf(avatar, sizeof(avatar), "%s", a->valuestring);
+                    cJSON *p = cJSON_GetObjectItemCaseSensitive(root, "pid");
+                    if (cJSON_IsNumber(p)) pid = (int)p->valuedouble;
+                    cJSON_Delete(root);
+                }
+            }
+            free(buf);
+        }
+        fclose(f);
+    }
+    f = fopen(STATUS_FILE, "w");
+    if (!f) return;
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "connected", connected);
+    cJSON_AddStringToObject(root, "current_game", game);
+    cJSON_AddStringToObject(root, "discord_username", user);
+    cJSON_AddStringToObject(root, "discord_avatar", avatar);
+    cJSON_AddNumberToObject(root, "pid", pid);
+    if (error_msg && error_msg[0]) cJSON_AddStringToObject(root, "error", error_msg);
+    char *s = cJSON_PrintUnformatted(root);
+    if (s) { fputs(s, f); free(s); }
+    cJSON_Delete(root);
+    fclose(f);
+}
 }

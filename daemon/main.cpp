@@ -15,7 +15,6 @@ extern "C" {
 }
 
 #include "base/BinderMonitor/BinderMonitor.hpp"
-#include "include/EncoreLog.hpp"
 
 // EncoreLog uses spdlog; define a minimal log macro if needed.
 // We'll use our own log (log.h) instead.
@@ -87,14 +86,25 @@ int main(int argc, char *argv[]) {
     signal(SIGTERM, sig_term);
     signal(SIGINT, sig_term);
 
-    // Initialize binder monitor
+    // Initialize binder monitor (retry a few times; service may not be ready right after boot)
     ProcessObserverCallbacks cbs;
     cbs.onForegroundActivitiesChanged = on_fg;
     cbs.onProcessDied = on_died;
     BinderMonitor::get().setProcessObserverCallbacks(cbs);
-    if (!BinderMonitor::get().initialize()) {
-        LOG_ERROR("BinderMonitor init failed, falling back to polling");
-        // fall through; main loop will poll
+
+    bool binder_ok = false;
+    for (int i = 0; i < 5 && !binder_ok; i++) {
+        if (i > 0) {
+            LOG_WARN("BinderMonitor init retry %d/5...", i + 1);
+            sleep(3);
+        }
+        if (BinderMonitor::get().initialize()) {
+            binder_ok = true;
+        }
+    }
+    if (!binder_ok) {
+        LOG_ERROR("BinderMonitor init failed, game detection disabled");
+        config_write_error("BinderMonitor init failed; game detection disabled.");
     }
 
     // Connect to gateway
