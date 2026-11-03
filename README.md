@@ -1,23 +1,13 @@
-[Bahasa Indonesia](README.id.md) | **English**
-
 # RPCDroid
+
+[Bahasa Indonesia](README.id.md) | **English**
 
 A root module for Magisk, KernelSU, and APatch that sends Android game activity to Discord Rich Presence.
 
-![Version](https://img.shields.io/badge/version-0.1.2-blue)
+![Version](https://img.shields.io/badge/version-0.1.4-blue)
 ![Android](https://img.shields.io/badge/Android-10%2B-3DDC84)
-![Root](https://img.shields.io/badge/root-Magisk%20%7C%20KernelSU%20%7C%20APatch-lightgrey)
-![Daemon](https://img.shields.io/badge/daemon-C%20(NDK)-informational)
+![Daemon](https://img.shields.io/badge/daemon-C%2B%2B%20(NDK)-informational)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
-
-<!--
-  Add screenshots here, for example:
-  <p align="center">
-    <img src="docs/screenshots/home.png" width="240" alt="Home page">
-    <img src="docs/screenshots/games.png" width="240" alt="Game list">
-    <img src="docs/screenshots/discord.png" width="240" alt="Result in Discord">
-  </p>
--->
 
 ## Overview
 
@@ -29,7 +19,7 @@ This is handled by a native daemon (`rpcdroid`) that runs as a module service an
 
 The module does not use an Android app service or the accessibility permission. The daemon detects games by reading the foreground app through `dumpsys`, and the same daemon manages the connection to Discord.
 
-The daemon uses roughly 1â€“2 MB of RAM, with CPU load close to zero while idle.
+The daemon uses roughly 1-2 MB of RAM, with CPU load close to zero while idle.
 
 ## Features
 
@@ -50,9 +40,9 @@ The daemon uses roughly 1â€“2 MB of RAM, with CPU load close to zero while 
 
 - Requires root access. The module does not work on devices without root.
 - Only games listed in `gamelist.json` are reported to Discord.
-- Detection is polling-based, so a status change can be delayed by up to about one interval (default 5 seconds).
+- Detection is polling-based, so a status change can be delayed by up to about one interval (default 3 seconds).
 - Depends on the Discord Gateway, which is not documented for user accounts. Changes on Discord's side may break the module at any time.
-- The current version (0.1.2) is an early release and has not been widely tested across devices.
+- The current version (0.1.4) is an early release and has not been widely tested across devices.
 
 ## Installation
 
@@ -64,7 +54,7 @@ The daemon uses roughly 1â€“2 MB of RAM, with CPU load close to zero while 
 
 ### Steps
 
-1. Download `rpcdroid-v0.1.2.zip` from the releases page.
+1. Download `rpcdroid-v0.1.4.zip` from the releases page.
 2. In the root manager app, open **Modules**, choose **Install from storage**, and select the zip file.
 3. Reboot the device after installation finishes.
 4. Open the module's WebUI. On KernelSU and APatch, the WebUI opens from the module list. Magisk users need an additional app, for example [KsuWebUI Standalone](https://github.com/KOWX712/KsuWebUIStandalone/releases).
@@ -106,6 +96,8 @@ WebUI  <-->  /data/adb/.config/drpc/  <-->  rpcdroid (daemon)  <-->  Discord Gat
 
 The WebUI and the daemon do not communicate directly. They share files in `/data/adb/.config/drpc/`. The WebUI writes the configuration, the daemon watches it with `inotify` and reloads on change, then writes `status.json`, which the WebUI reads back.
 
+The daemon is managed by `service.sh` (started at boot). The **Start/Stop** buttons in the WebUI only toggle the `enabled` flag file; they do not spawn the daemon directly. This ensures the daemon survives when the root manager app is closed.
+
 ### Flow from installation to status display
 
 1. **Installation.** `customize.sh` copies the `rpcdroid` binary matching the CPU architecture, then scans `/data/data/<package>` to find installed games. The results are matched against `gamelist.txt` and compiled into `gamelist.json` along with each game's `app_id`.
@@ -117,10 +109,10 @@ The WebUI and the daemon do not communicate directly. They share files in `/data
 
 | Opcode | Direction | Purpose |
 |---|---|---|
-| 10 Hello | Discord â†’ daemon | Provides the heartbeat interval |
-| 1 Heartbeat | Daemon â†’ Discord | Keeps the connection alive |
-| 2 Identify | Daemon â†’ Discord | Authenticates with the token |
-| 3 Presence Update | Daemon â†’ Discord | Sends the game activity |
+| 10 Hello | Discord -> daemon | Provides the heartbeat interval |
+| 1 Heartbeat | Daemon -> Discord | Keeps the connection alive |
+| 2 Identify | Daemon -> Discord | Authenticates with the token |
+| 3 Presence Update | Daemon -> Discord | Sends the game activity |
 
 ## Icon mechanism
 
@@ -138,7 +130,7 @@ The conversion in the second path is required because Discord rejects raw `https
 |---|---|---|
 | Daemon | C++ (main/config/gateway/log) + C (websocket, cJSON), Android NDK (Clang), mbedTLS 3.6.0, cJSON, inotify, Android Binder (BinderMonitor) | Gateway connection, event-driven game detection, JSON processing, config hot-reload |
 | WebUI | Vue 3 (Composition API), Vite 7, Pinia 2, Vue Router 4, Tailwind CSS 4, `kernelsu` API | Token settings, game list, and logs |
-| Installation and service | POSIX shell, `pm`, `dumpsys` | `customize.sh`, `service.sh`, `action.sh`, `uninstall.sh` |
+| Installation and service | POSIX shell, `pm`, `dumpsys` | `customize.sh`, `service.sh`, `uninstall.sh` |
 | Protocol | Discord Gateway API v10, WebSocket (RFC 6455) over TLS | Authentication and Rich Presence delivery |
 
 <details>
@@ -146,58 +138,60 @@ The conversion in the second path is required because Discord rejects raw `https
 
 ```
 RPCDroid/
-â”œâ”€â”€ build.sh                       # Main builder for the whole module
-â”œâ”€â”€ README.md
-â”œâ”€â”€ README_EN.md
-â”œâ”€â”€ rpcdroid-v0.1.2.zip            # Flashable module package
-â”œâ”€â”€ .gitignore
-â”‚
-â”œâ”€â”€ daemon/                        # Daemon source (C, NDK)
-â”‚   â”œâ”€â”€ main.c                     # Entry point and inotify hot-reload
-â”‚   â”œâ”€â”€ gateway.c / .h             # Discord Gateway v10 protocol
-â”‚   â”œâ”€â”€ websocket.c / .h           # WebSocket client via mbedTLS + REST resolver
-â”‚   â”œâ”€â”€ detector.c / .h            # Foreground app detector
-â”‚   â”œâ”€â”€ config.c / .h              # Config, gamelist, and token loader
-â”‚   â”œâ”€â”€ log.c / .h                 # File logger, thread-safe
-â”‚   â”œâ”€â”€ cJSON.c / .h               # JSON parser and serializer
-â”‚   â”œâ”€â”€ mbedtls_config.h           # Minimal TLS client configuration
-â”‚   â”œâ”€â”€ entropy_hardware_alt.c     # /dev/urandom entropy source for mbedTLS
-â”‚   â”œâ”€â”€ Android.mk                 # NDK build flags and targets
-â”‚   â”œâ”€â”€ Application.mk             # Platform and ABI
-â”‚   â””â”€â”€ build.sh                   # Daemon compilation via NDK
-â”‚
-â”œâ”€â”€ webui/                         # WebUI source (Vue 3 + Vite)
-â”‚   â”œâ”€â”€ index.html
-â”‚   â”œâ”€â”€ package.json
-â”‚   â”œâ”€â”€ vite.config.js             # Build output goes to module/webroot/
-â”‚   â””â”€â”€ src/
-â”‚       â”œâ”€â”€ main.js                # Vue entry point
-â”‚       â”œâ”€â”€ App.vue                # Layout and navigation
-â”‚       â”œâ”€â”€ router/index.js        # Routes: /, /games, /settings
-â”‚       â”œâ”€â”€ views/
-â”‚       â”‚   â”œâ”€â”€ HomeView.vue       # Daemon status, active game, start/stop buttons
-â”‚       â”‚   â”œâ”€â”€ GamesView.vue      # Game list, toggle, rename, icon/appId
-â”‚       â”‚   â””â”€â”€ SettingsView.vue   # Token, polling interval, app_id, log
-â”‚       â”œâ”€â”€ stores/
-â”‚       â”‚   â”œâ”€â”€ config.js          # Pinia: config.json and token
-â”‚       â”‚   â”œâ”€â”€ games.js           # Pinia: gamelist.json and automatic sync
-â”‚       â”‚   â””â”€â”€ status.js          # Pinia: runtime status and log
-â”‚       â””â”€â”€ helpers/
-â”‚           â”œâ”€â”€ apps.js            # KNOWN_GAMES database and package detection
-â”‚           â””â”€â”€ exec.js            # Root shell wrapper and file I/O
-â”‚
-â””â”€â”€ module/                        # Magisk / KernelSU module structure
-    â”œâ”€â”€ module.prop                # Module metadata
-    â”œâ”€â”€ customize.sh               # Installation and migration at flash time
-    â”œâ”€â”€ service.sh                 # Starts the daemon at boot
-    â”œâ”€â”€ action.sh                  # Action button handler
-    â”œâ”€â”€ uninstall.sh               # Cleanup when the module is removed
-    â”œâ”€â”€ gamelist.txt               # 470+ popular game packages
-    â”œâ”€â”€ libs/                      # Compiled binaries
-    â”‚   â”œâ”€â”€ arm64-v8a/rpcdroid
-    â”‚   â”œâ”€â”€ armeabi-v7a/rpcdroid
-    â”‚   â””â”€â”€ x86_64/rpcdroid
-    â””â”€â”€ webroot/                   # Static WebUI bundle
+|-- build.sh                       # Main builder for the whole module
+|-- README.md
+|-- README.id.md
+|-- rpcdroid-v0.1.4.zip            # Flashable module package
+|-- .gitignore
+|
+|-- daemon/                        # Daemon source (C++/C, NDK)
+|   |-- main.cpp                    # Entry point (C++, BinderMonitor)
+|   |-- gateway.cpp / .h           # Discord Gateway v10 protocol
+|   |-- websocket.c / .h           # WebSocket client via mbedTLS + REST resolver
+|   |-- config.cpp / .h            # Config, gamelist, and token loader
+|   |-- log.cpp / .h               # File logger, thread-safe
+|   |-- cJSON.c / .h               # JSON parser and serializer
+|   |-- mbedtls_config.h           # Minimal TLS client configuration
+|   |-- entropy_hardware_alt.c     # /dev/urandom entropy source for mbedTLS
+|   |-- include/                   # Headers (Encore.hpp, EncoreLog.hpp, ...)
+|   |-- base/                      # BinderMonitor, BinderNDK, InotifyWatcher (from Encore)
+|   |-- external/                  # rapidjson, spdlog
+|   |-- binder_resolver.apk        # Transaction code resolver (from Encore)
+|   |-- Android.mk                 # NDK build flags and targets
+|   |-- Application.mk             # Platform and ABI
+|   `-- build.sh                   # Daemon compilation via NDK
+|
+|-- webui/                         # WebUI source (Vue 3 + Vite)
+|   |-- index.html
+|   |-- package.json
+|   |-- vite.config.js             # Build output goes to module/webroot/
+|   `-- src/
+|       |-- main.js                # Vue entry point
+|       |-- App.vue                # Layout and navigation
+|       |-- router/index.js        # Routes: /, /games, /settings
+|       |-- views/
+|       |   |-- HomeView.vue       # Daemon status, active game, start/stop buttons
+|       |   |-- GamesView.vue      # Game list, toggle, rename, icon/appId
+|       |   `-- SettingsView.vue   # Token, polling interval, app_id, log
+|       |-- stores/
+|       |   |-- config.js          # Pinia: config.json and token
+|       |   |-- games.js           # Pinia: gamelist.json and automatic sync
+|       |   `-- status.js          # Pinia: runtime status and log
+|       `-- helpers/
+|           |-- apps.js            # KNOWN_GAMES database and package detection
+|           `-- exec.js            # Root shell wrapper and file I/O
+|
+`-- module/                        # Magisk / KernelSU module structure
+    |-- module.prop                # Module metadata
+    |-- customize.sh               # Installation and migration at flash time
+    |-- service.sh                 # Starts the daemon at boot (watchdog)
+    |-- uninstall.sh               # Cleanup when the module is removed
+    |-- gamelist.txt               # 470+ popular game packages
+    |-- libs/                      # Compiled binaries
+    |   |-- arm64-v8a/rpcdroid
+    |   |-- armeabi-v7a/rpcdroid
+    |   `-- x86_64/rpcdroid
+    `-- webroot/                   # Static WebUI bundle
 ```
 
 </details>
@@ -212,10 +206,12 @@ All runtime data is stored in `/data/adb/.config/drpc/`.
 | File | Format | Contents |
 |---|---|---|
 | `token` | Plain text | Discord user token |
-| `config.json` | JSON | `poll_interval`, `status` (online status), `log_level`, and a fallback `application_id` |
+| `config.json` | JSON | `poll_interval`, `log_level`, and a fallback `application_id` |
 | `gamelist.json` | JSON | Keys are package names; values hold the game name, Discord `app_id`, and an `enabled` flag |
-| `status.json` | JSON | Written by the daemon: running/stopped, active game, gateway connection state. Read by the WebUI |
-| `drpc.log` | Plain text | Diagnostic log |
+| `status.json` | JSON | Written by the daemon: running/stopped, active game, gateway connection state, pid, avatar. Read by the WebUI |
+| `drpc.log` | Plain text | Diagnostic log (rotated at 512 KB) |
+| `runtime.json` | JSON | Persisted playtime (game + start timestamp) |
+| `icon_cache.json` | JSON | Cached `mp:external/...` icon URLs |
 
 </details>
 
@@ -282,14 +278,14 @@ cd ..
 python3 - <<'EOF'
 import os, zipfile
 
-with zipfile.ZipFile("rpcdroid-v0.1.2.zip", "w", zipfile.ZIP_DEFLATED) as zf:
+with zipfile.ZipFile("rpcdroid-v0.1.4.zip", "w", zipfile.ZIP_DEFLATED) as zf:
     for root, _, files in os.walk("module"):
         for name in files:
             path = os.path.join(root, name)
             arcname = os.path.relpath(path, "module").replace(os.sep, "/")
             zf.write(path, arcname)
 
-print("Done: rpcdroid-v0.1.2.zip")
+print("Done: rpcdroid-v0.1.4.zip")
 EOF
 ```
 
@@ -301,8 +297,9 @@ These three steps are also bundled in `build.sh` at the repository root.
 
 ## Credits
 
-- [Encore Tweaks](https://github.com/Rem01Gaming/encore) (Apache-2.0): reference for the event-driven process detection approach (BinderMonitor with `onForegroundActivitiesChanged` / `onProcessDied`), the inotify-based hot-reload, and the daemon architecture.
+- [Kizzy](https://github.com/dead8309/Kizzy) and [KizzyRPC](https://github.com/dead8309/KizzyRPC): reference for the foreground app detection approach, the Activity/Assets structure, and the use of `application_id` and the `external-assets` endpoint.
 - [navidrome/discord-rich-presence-plugin](https://github.com/navidrome/discord-rich-presence-plugin): reference for the external image registration flow (`mp:external/...`) and caching.
+- [Encore Tweaks](https://github.com/Rem01Gaming/encore) (Apache-2.0): reference for the event-driven process detection approach (BinderMonitor with `onForegroundActivitiesChanged` / `onProcessDied`), the inotify-based hot-reload, and the daemon architecture.
 - [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) (Apache 2.0): TLS for the Gateway connection.
 - [cJSON](https://github.com/DaveGamble/cJSON) (MIT): JSON parser for C.
 - [KernelSU](https://github.com/tiann/KernelSU): root solution and the `kernelsu` API for the WebUI.
