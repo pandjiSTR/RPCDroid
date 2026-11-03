@@ -4,7 +4,7 @@
 
 A root module for Magisk, KernelSU, and APatch that sends Android game activity to Discord Rich Presence.
 
-![Version](https://img.shields.io/badge/version-0.1.4-blue)
+![Version](https://img.shields.io/badge/version-0.1.5-blue)
 ![Android](https://img.shields.io/badge/Android-10%2B-3DDC84)
 ![Daemon](https://img.shields.io/badge/daemon-C%2B%2B%20(NDK)-informational)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
@@ -40,9 +40,9 @@ The daemon uses roughly 1-2 MB of RAM, with CPU load close to zero while idle.
 
 - Requires root access. The module does not work on devices without root.
 - Only games listed in `gamelist.json` are reported to Discord.
-- Detection is polling-based, so a status change can be delayed by up to about one interval (default 3 seconds).
+- Detection is event-driven via Binder (IProcessObserver). A lightweight fallback polls the game process state every few seconds for close detection. Status changes may be delayed by up to one poll interval in the worst case.
 - Depends on the Discord Gateway, which is not documented for user accounts. Changes on Discord's side may break the module at any time.
-- The current version (0.1.4) is an early release and has not been widely tested across devices.
+- The current version (0.1.5) is an early release and has not been widely tested across devices.
 
 ## Installation
 
@@ -54,7 +54,7 @@ The daemon uses roughly 1-2 MB of RAM, with CPU load close to zero while idle.
 
 ### Steps
 
-1. Download `rpcdroid-v0.1.4.zip` from the releases page.
+1. Download `rpcdroid-v0.1.5.zip` from the releases page.
 2. In the root manager app, open **Modules**, choose **Install from storage**, and select the zip file.
 3. Reboot the device after installation finishes.
 4. Open the module's WebUI. On KernelSU and APatch, the WebUI opens from the module list. Magisk users need an additional app, for example [KsuWebUI Standalone](https://github.com/KOWX712/KsuWebUIStandalone/releases).
@@ -141,7 +141,7 @@ RPCDroid/
 |-- build.sh                       # Main builder for the whole module
 |-- README.md
 |-- README.id.md
-|-- rpcdroid-v0.1.4.zip            # Flashable module package
+|-- rpcdroid-v0.1.5.zip            # Flashable module package
 |-- .gitignore
 |
 |-- daemon/                        # Daemon source (C++/C, NDK)
@@ -278,14 +278,14 @@ cd ..
 python3 - <<'EOF'
 import os, zipfile
 
-with zipfile.ZipFile("rpcdroid-v0.1.4.zip", "w", zipfile.ZIP_DEFLATED) as zf:
+with zipfile.ZipFile("rpcdroid-v0.1.5.zip", "w", zipfile.ZIP_DEFLATED) as zf:
     for root, _, files in os.walk("module"):
         for name in files:
             path = os.path.join(root, name)
             arcname = os.path.relpath(path, "module").replace(os.sep, "/")
             zf.write(path, arcname)
 
-print("Done: rpcdroid-v0.1.4.zip")
+print("Done: rpcdroid-v0.1.5.zip")
 EOF
 ```
 

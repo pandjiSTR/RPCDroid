@@ -26,8 +26,7 @@ LOCAL_SRC_FILES     := websocket.c config.cpp \
 # C++ sources
 LOCAL_SRC_FILES     += main.cpp log.cpp gateway.cpp
 
-LOCAL_STATIC_LIBRARIES := mbedtls_static rapidjson spdlog \
-                          InotifyWatcher GameRegistry EncoreUtility DeviceInfo \
+LOCAL_STATIC_LIBRARIES := mbedtls_static spdlog \
                           BinderNDK BinderMonitor
 LOCAL_LDLIBS        := -llog -lbinder_ndk -landroid
 

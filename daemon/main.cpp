@@ -16,9 +16,6 @@ extern "C" {
 
 #include "base/BinderMonitor/BinderMonitor.hpp"
 
-// EncoreLog uses spdlog; define a minimal log macro if needed.
-// We'll use our own log (log.h) instead.
-
 static volatile int g_running = 1;
 static void sig_term(int) { g_running = 0; }
 
