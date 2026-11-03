@@ -4,7 +4,7 @@
 
 Modul root untuk Magisk, KernelSU, dan APatch yang mengirim aktivitas game Android ke Discord Rich Presence.
 
-![Versi](https://img.shields.io/badge/versi-0.1.5-blue)
+![Versi](https://img.shields.io/badge/versi-0.1.6-blue)
 ![Android](https://img.shields.io/badge/Android-10%2B-3DDC84)
 ![Daemon](https://img.shields.io/badge/daemon-C%2B%2B%20(NDK)-informational)
 ![Lisensi](https://img.shields.io/badge/lisensi-GPL--3.0-blue)
@@ -17,9 +17,11 @@ Fungsi tersebut dijalankan oleh sebuah daemon native (`rpcdroid`) yang berjalan 
 
 ## Pendekatan
 
-Modul ini tidak menggunakan service aplikasi Android atau izin aksesibilitas. Deteksi game dilakukan oleh daemon dengan membaca aplikasi foreground melalui `dumpsys`, dan koneksi ke Discord dikelola oleh daemon yang sama.
+Modul ini tidak menggunakan service aplikasi Android atau izin aksesibilitas. Deteksi game bersifat event-driven: daemon mendaftarkan IProcessObserver ke ActivityManager (via BinderMonitor, libbinder_ndk) dan menerima callback foreground/process-death secara real-time. `binder_resolver.apk` (dijalankan lewat `app_process`) dipakai saat startup untuk me-resolve transaction code yang berbeda antar versi Android. Koneksi ke Discord dikelola oleh daemon yang sama. `dumpsys` hanya dipakai sebagai fallback.
 
 Pemakaian sumber daya daemon sekitar 1-2 MB RAM dengan beban CPU yang mendekati nol pada kondisi idle.
+
+Restart daemon dari WebUI (tombol Restart) men-`killall` daemon dan watchdog di `service.sh` menyalakannya lagi dalam sekitar 5 detik.
 
 ## Fitur
 
@@ -42,7 +44,7 @@ Pemakaian sumber daya daemon sekitar 1-2 MB RAM dengan beban CPU yang mendekati 
 - Hanya game yang terdaftar di `gamelist.json` yang dilaporkan ke Discord.
 - Deteksi game berbasis event via Binder (IProcessObserver). Fallback polling hanya mengecek proses game masih hidup tiap beberapa detik untuk deteksi tutup game. Perubahan status dapat tertunda hingga satu interval polling pada kasus terburuk.
 - Bergantung pada Discord Gateway yang tidak didokumentasikan untuk akun pengguna. Perubahan di sisi Discord dapat memengaruhi fungsi modul sewaktu-waktu.
-- Versi saat ini (0.1.5) masih awal dan belum diuji luas pada berbagai perangkat.
+- Versi saat ini (0.1.6) masih awal dan belum diuji luas pada berbagai perangkat.
 
 ## Instalasi
 
@@ -54,7 +56,7 @@ Pemakaian sumber daya daemon sekitar 1-2 MB RAM dengan beban CPU yang mendekati 
 
 ### Langkah
 
-1. Unduh `rpcdroid-v0.1.5.zip` dari halaman rilis.
+1. Unduh `rpcdroid-v0.1.6.zip` dari halaman rilis.
 2. Di aplikasi manajer root, buka **Modules**, pilih **Install from storage**, lalu pilih berkas zip tersebut.
 3. Reboot perangkat setelah instalasi selesai.
 4. Buka WebUI modul (tombol WebUI di KernelSU/APatch, atau tombol Action di Magisk).
@@ -69,6 +71,7 @@ Pemakaian sumber daya daemon sekitar 1-2 MB RAM dengan beban CPU yang mendekati 
 | Status tidak muncul | Pastikan daemon berstatus *Running* di halaman Home dan token sudah tersimpan. |
 | Game tidak terdeteksi | Buka halaman **Games**, pastikan game ada di daftar dan togglenya aktif. |
 | Ikon tidak tampil | Lihat [Mekanisme ikon](#mekanisme-ikon). Game yang belum terdaftar memerlukan URL ikon yang valid. |
+| Game tidak terdeteksi tapi daemon Running | Cek banner error di Home / field `error` di `status.json` ("BinderMonitor init failed; game detection disabled."). Cek `drpc.log` (kata kunci `BinderMonitor`, `Resolver`, "Failed to resolve"); kemungkinan ROM tidak kompatibel atau `binder_resolver.apk` hilang di `/data/adb/modules/rpcdroid/`. Sertakan versi Android, ROM, root manager, dan log (tanpa token) saat melapor. |
 | Penyebab tidak jelas | Periksa log di **Settings** atau berkas `/data/adb/.config/drpc/drpc.log`. |
 
 ### Melaporkan masalah
@@ -128,9 +131,9 @@ Konversi pada jalur kedua diperlukan karena Discord menolak URL `https://` menta
 
 | Komponen | Teknologi | Peran |
 |---|---|---|
-| Daemon | C++ (main/config/gateway/log) + C (websocket, cJSON), Android NDK (Clang), mbedTLS 3.6.0, cJSON, inotify, Android Binder (BinderMonitor) | Koneksi ke Gateway, deteksi game berbasis event, pemrosesan JSON, hot-reload konfigurasi |
+| Daemon | C++ (main/config/gateway/log) + C (websocket, cJSON), Android NDK (Clang), mbedTLS 3.6.0, cJSON, Android Binder (BinderMonitor) | Koneksi ke Gateway, deteksi game berbasis event, pemrosesan JSON |
 | WebUI | Vue 3 (Composition API), Vite 7, Pinia 2, Vue Router 4, Tailwind CSS 4, `kernelsu` API | Pengaturan token, daftar game, dan log |
-| Instalasi dan service | POSIX shell, `pm`, `dumpsys` | `customize.sh`, `service.sh`, `uninstall.sh` |
+| Instalasi dan service | POSIX shell | `customize.sh`, `service.sh`, `uninstall.sh` |
 | Protokol | Discord Gateway API v10, WebSocket (RFC 6455) over TLS | Autentikasi dan pengiriman Rich Presence |
 
 <details>
@@ -141,7 +144,7 @@ RPCDroid/
 |-- build.sh                       # Builder utama seluruh modul
 |-- README.md
 |-- README.id.md
-|-- rpcdroid-v0.1.5.zip            # Paket modul siap flash
+|-- rpcdroid-v0.1.6.zip            # Paket modul siap flash
 |-- .gitignore
 |
 |-- daemon/                        # Source daemon (C++/C, NDK)
@@ -207,7 +210,7 @@ Seluruh data runtime disimpan di `/data/adb/.config/drpc/`.
 | Berkas | Format | Isi |
 |---|---|---|
 | `token` | Teks biasa | Discord user token |
-| `config.json` | JSON | `poll_interval`, `log_level`, dan `application_id` cadangan |
+| `config.json` | JSON | `poll_interval` (cadangan, saat ini tidak dipakai daemon), `log_level`, dan `application_id` cadangan |
 | `gamelist.json` | JSON | Kunci berupa package name; nilai berisi nama game, `app_id` Discord, dan flag `enabled` |
 | `status.json` | JSON | Ditulis daemon: running/stopped, game aktif, status koneksi gateway, pid, avatar. Dibaca WebUI |
 | `drpc.log` | Teks biasa | Log untuk diagnosa (dipotong otomatis jika >512 KB) |
@@ -279,14 +282,14 @@ cd ..
 python3 - <<'EOF'
 import os, zipfile
 
-with zipfile.ZipFile("rpcdroid-v0.1.5.zip", "w", zipfile.ZIP_DEFLATED) as zf:
+with zipfile.ZipFile("rpcdroid-v0.1.6.zip", "w", zipfile.ZIP_DEFLATED) as zf:
     for root, _, files in os.walk("module"):
         for name in files:
             path = os.path.join(root, name)
             arcname = os.path.relpath(path, "module").replace(os.sep, "/")
             zf.write(path, arcname)
 
-print("Selesai: rpcdroid-v0.1.5.zip")
+print("Selesai: rpcdroid-v0.1.6.zip")
 EOF
 ```
 
@@ -300,7 +303,7 @@ Ketiga langkah tersebut juga dirangkum dalam `build.sh` di root repositori.
 
 - [Kizzy](https://github.com/dead8309/Kizzy) dan [KizzyRPC](https://github.com/dead8309/KizzyRPC): rujukan pendekatan deteksi aplikasi foreground, struktur Activity/Assets, serta penggunaan `application_id` dan endpoint `external-assets`.
 - [navidrome/discord-rich-presence-plugin](https://github.com/navidrome/discord-rich-presence-plugin): rujukan alur pendaftaran gambar eksternal (`mp:external/...`) dan caching.
-- [Encore Tweaks](https://github.com/Rem01Gaming/encore) (Apache-2.0): rujukan untuk pendekatan deteksi proses berbasis event (BinderMonitor dengan `onForegroundActivitiesChanged` / `onProcessDied`), hot-reload berbasis inotify, dan arsitektur daemon.
+- [Encore Tweaks](https://github.com/Rem01Gaming/encore) (Apache-2.0): rujukan untuk pendekatan deteksi proses berbasis event (BinderMonitor dengan `onForegroundActivitiesChanged` / `onProcessDied`) dan arsitektur daemon.
 - [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) (Apache 2.0): TLS untuk koneksi ke Gateway.
 - [cJSON](https://github.com/DaveGamble/cJSON) (MIT): parser JSON untuk C.
 - [KernelSU](https://github.com/tiann/KernelSU): root solution dan API `kernelsu` untuk WebUI.

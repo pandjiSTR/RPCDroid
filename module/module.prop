@@ -1,7 +1,7 @@
 id=rpcdroid
 name=RPCDroid
-version=v0.1.5
-versionCode=5
+version=v0.1.6
+versionCode=6
 author=PandjiSTR
 description=Automatically shows Discord Rich Presence when playing games. Requires Discord token setup via WebUI.
 updateJson=

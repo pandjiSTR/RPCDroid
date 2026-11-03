@@ -4,7 +4,7 @@
 
 A root module for Magisk, KernelSU, and APatch that sends Android game activity to Discord Rich Presence.
 
-![Version](https://img.shields.io/badge/version-0.1.5-blue)
+![Version](https://img.shields.io/badge/version-0.1.6-blue)
 ![Android](https://img.shields.io/badge/Android-10%2B-3DDC84)
 ![Daemon](https://img.shields.io/badge/daemon-C%2B%2B%20(NDK)-informational)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
@@ -17,9 +17,11 @@ This is handled by a native daemon (`rpcdroid`) that runs as a module service an
 
 ## Approach
 
-The module does not use an Android app service or the accessibility permission. The daemon detects games by reading the foreground app through `dumpsys`, and the same daemon manages the connection to Discord.
+The module does not use an Android app service or the accessibility permission. Game detection is event-driven: the daemon registers an IProcessObserver with Android ActivityManager (via BinderMonitor, libbinder_ndk), receiving foreground and process-death callbacks in real time. `binder_resolver.apk` (run via `app_process`) resolves transaction codes that differ between Android versions. The same daemon manages the connection to Discord. `dumpsys` is only used as a lightweight fallback.
 
 The daemon uses roughly 1-2 MB of RAM, with CPU load close to zero while idle.
+
+Restarting the daemon from the WebUI (Restart button) kills it and the watchdog in `service.sh` brings it back within about 5 seconds.
 
 ## Features
 
@@ -42,7 +44,7 @@ The daemon uses roughly 1-2 MB of RAM, with CPU load close to zero while idle.
 - Only games listed in `gamelist.json` are reported to Discord.
 - Detection is event-driven via Binder (IProcessObserver). A lightweight fallback polls the game process state every few seconds for close detection. Status changes may be delayed by up to one poll interval in the worst case.
 - Depends on the Discord Gateway, which is not documented for user accounts. Changes on Discord's side may break the module at any time.
-- The current version (0.1.5) is an early release and has not been widely tested across devices.
+- The current version (0.1.6) is an early release and has not been widely tested across devices.
 
 ## Installation
 
@@ -54,7 +56,7 @@ The daemon uses roughly 1-2 MB of RAM, with CPU load close to zero while idle.
 
 ### Steps
 
-1. Download `rpcdroid-v0.1.5.zip` from the releases page.
+1. Download `rpcdroid-v0.1.6.zip` from the releases page.
 2. In the root manager app, open **Modules**, choose **Install from storage**, and select the zip file.
 3. Reboot the device after installation finishes.
 4. Open the module's WebUI. On KernelSU and APatch, the WebUI opens from the module list. Magisk users need an additional app, for example [KsuWebUI Standalone](https://github.com/KOWX712/KsuWebUIStandalone/releases).
@@ -69,6 +71,7 @@ The daemon uses roughly 1-2 MB of RAM, with CPU load close to zero while idle.
 | Status does not appear | Make sure the daemon shows *Running* on the Home page and the token is saved. |
 | Game is not detected | Open the **Games** page, make sure the game is listed and its toggle is on. |
 | Icon does not show | See [Icon mechanism](#icon-mechanism). Games that are not registered need a valid icon URL. |
+| Game not detected but daemon Running | Check the error banner on Home / the `error` field in `status.json` ("BinderMonitor init failed; game detection disabled."). Check `drpc.log` for `BinderMonitor`, `Resolver`, "Failed to resolve". Likely an incompatible ROM or a missing/corrupt `binder_resolver.apk` in `/data/adb/modules/rpcdroid/`. Include Android version, ROM, root manager, and log (without token) when reporting. |
 | Cause is unclear | Check the log in **Settings** or the file `/data/adb/.config/drpc/drpc.log`. |
 
 ### Reporting issues
@@ -128,9 +131,9 @@ The conversion in the second path is required because Discord rejects raw `https
 
 | Component | Technology | Role |
 |---|---|---|
-| Daemon | C++ (main/config/gateway/log) + C (websocket, cJSON), Android NDK (Clang), mbedTLS 3.6.0, cJSON, inotify, Android Binder (BinderMonitor) | Gateway connection, event-driven game detection, JSON processing, config hot-reload |
+| Daemon | C++ (main/config/gateway/log) + C (websocket, cJSON), Android NDK (Clang), mbedTLS 3.6.0, cJSON, Android Binder (BinderMonitor) | Gateway connection, event-driven game detection, JSON processing |
 | WebUI | Vue 3 (Composition API), Vite 7, Pinia 2, Vue Router 4, Tailwind CSS 4, `kernelsu` API | Token settings, game list, and logs |
-| Installation and service | POSIX shell, `pm`, `dumpsys` | `customize.sh`, `service.sh`, `uninstall.sh` |
+| Installation and service | POSIX shell | `customize.sh`, `service.sh`, `uninstall.sh` |
 | Protocol | Discord Gateway API v10, WebSocket (RFC 6455) over TLS | Authentication and Rich Presence delivery |
 
 <details>
@@ -141,7 +144,7 @@ RPCDroid/
 |-- build.sh                       # Main builder for the whole module
 |-- README.md
 |-- README.id.md
-|-- rpcdroid-v0.1.5.zip            # Flashable module package
+|-- rpcdroid-v0.1.6.zip            # Flashable module package
 |-- .gitignore
 |
 |-- daemon/                        # Daemon source (C++/C, NDK)
@@ -206,7 +209,7 @@ All runtime data is stored in `/data/adb/.config/drpc/`.
 | File | Format | Contents |
 |---|---|---|
 | `token` | Plain text | Discord user token |
-| `config.json` | JSON | `poll_interval`, `log_level`, and a fallback `application_id` |
+| `config.json` | JSON | `poll_interval` (reserved, not used by daemon currently), `log_level`, and a fallback `application_id` |
 | `gamelist.json` | JSON | Keys are package names; values hold the game name, Discord `app_id`, and an `enabled` flag |
 | `status.json` | JSON | Written by the daemon: running/stopped, active game, gateway connection state, pid, avatar. Read by the WebUI |
 | `drpc.log` | Plain text | Diagnostic log (rotated at 512 KB) |
@@ -278,14 +281,14 @@ cd ..
 python3 - <<'EOF'
 import os, zipfile
 
-with zipfile.ZipFile("rpcdroid-v0.1.5.zip", "w", zipfile.ZIP_DEFLATED) as zf:
+with zipfile.ZipFile("rpcdroid-v0.1.6.zip", "w", zipfile.ZIP_DEFLATED) as zf:
     for root, _, files in os.walk("module"):
         for name in files:
             path = os.path.join(root, name)
             arcname = os.path.relpath(path, "module").replace(os.sep, "/")
             zf.write(path, arcname)
 
-print("Done: rpcdroid-v0.1.5.zip")
+print("Done: rpcdroid-v0.1.6.zip")
 EOF
 ```
 
@@ -299,7 +302,7 @@ These three steps are also bundled in `build.sh` at the repository root.
 
 - [Kizzy](https://github.com/dead8309/Kizzy) and [KizzyRPC](https://github.com/dead8309/KizzyRPC): reference for the foreground app detection approach, the Activity/Assets structure, and the use of `application_id` and the `external-assets` endpoint.
 - [navidrome/discord-rich-presence-plugin](https://github.com/navidrome/discord-rich-presence-plugin): reference for the external image registration flow (`mp:external/...`) and caching.
-- [Encore Tweaks](https://github.com/Rem01Gaming/encore) (Apache-2.0): reference for the event-driven process detection approach (BinderMonitor with `onForegroundActivitiesChanged` / `onProcessDied`), the inotify-based hot-reload, and the daemon architecture.
+- [Encore Tweaks](https://github.com/Rem01Gaming/encore) (Apache-2.0): reference for the event-driven process detection approach (BinderMonitor with `onForegroundActivitiesChanged` / `onProcessDied`) and the daemon architecture.
 - [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) (Apache 2.0): TLS for the Gateway connection.
 - [cJSON](https://github.com/DaveGamble/cJSON) (MIT): JSON parser for C.
 - [KernelSU](https://github.com/tiann/KernelSU): root solution and the `kernelsu` API for the WebUI.

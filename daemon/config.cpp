@@ -336,6 +336,9 @@ const char *gamelist_get_app_id(const char *package)
     return NULL;
 }
 
+/* Persistent error shown in status.json until daemon restarts (e.g. binder init failure) */
+static char g_status_error[256] = {0};
+
 void config_write_status(bool connected, const char *game, const char *discord_username, const char *discord_avatar)
 {
     static bool last_connected = false;
@@ -370,6 +373,7 @@ void config_write_status(bool connected, const char *game, const char *discord_u
     cJSON_AddStringToObject(root, "discord_username",   discord_username ? discord_username : "");
     cJSON_AddStringToObject(root, "discord_avatar",     discord_avatar   ? discord_avatar   : "");
     cJSON_AddNumberToObject(root, "pid", (double)getpid());
+    if (g_status_error[0]) cJSON_AddStringToObject(root, "error", g_status_error);
 
     char *s = cJSON_PrintUnformatted(root);
     if (s) {
@@ -490,6 +494,7 @@ void runtime_clear(void)
 
 /* Write an error message into status.json (preserving other fields) */
 void config_write_error(const char *error_msg) {
+    snprintf(g_status_error, sizeof(g_status_error), "%s", error_msg ? error_msg : "");
     ensure_config_dir();
     FILE *f = fopen(STATUS_FILE, "r");
     char game[256] = {0}, user[256] = {0}, avatar[256] = {0};
